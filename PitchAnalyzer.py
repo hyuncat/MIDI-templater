@@ -9,26 +9,43 @@ import matplotlib.pyplot as plt
 
 class PitchAnalyzer(QMainWindow):
     def __init__(self, argv=sys.argv):
+        """
+        Initialize PitchAnalyzer GUI instance
+        """
         self.app = QApplication(argv)
         super().__init__()
-        self.setupPlot()
-        self.initUI()
+
+        # Setup the PitchPlot (maybe other plots later)
+        self.figure = Figure()
+        self.setupPitchPlot()
+
+        # Initialize the UI
+        self.initPitchUI()
+
+        # Initialize audio
         self.initAudio()
-        self.pitchYin = self.ES_PitchYin()
         self.is_recording = False
+        self.buffer = np.array([])
+        self.buffer_size = 4410  # 100ms buffer
+
+        self.pitchYin = self.ES_PitchYin()
 
     def run(self):
+        """
+        Self-contained method to run the GUI
+        """
         self.show()
         sys.exit(self.app.exec_())
 
-    def initUI(self):
-        # Set up the main window and central widget
+    def initPitchUI(self):
+        # Main window and central widget
         self.setWindowTitle('Pitch Analyzer')
         self.central_widget = QWidget()
         self.setCentralWidget(self.central_widget)
         layout = QVBoxLayout(self.central_widget)
+        self.statusBar().showMessage('Ready')
 
-        # Set up the GUI layout with a button
+        # Recording start/stop button!
         self.button = QPushButton('Start Recording', self)
         self.button.clicked.connect(self.toggleRecording)
         layout.addWidget(self.button)
@@ -37,8 +54,6 @@ class PitchAnalyzer(QMainWindow):
         self.canvas = FigureCanvas(self.figure)
         layout.addWidget(self.canvas)
 
-        # Optionally, add a status bar
-        self.statusBar().showMessage('Ready')
 
     def initAudio(self):
         # Set up audio stream
@@ -51,28 +66,47 @@ class PitchAnalyzer(QMainWindow):
                                       stream_callback=self.callback)
 
     def ES_PitchYin(self):
-        # Initialize PitchYin with specific parameters
-        return es.PitchYin(sampleRate=44100,
-                           frameSize=2048,
+        """
+        Initialize Essentia's PitchYin algorithm
+        """
+        #TODO: make parameters configurable
+        return es.PitchYin(frameSize=2048,
+                           interpolate=True,
                            maxFrequency=22050,
                            minFrequency=20,
-                           interpolate=True,
+                           sampleRate=44100,
                            tolerance=0.15)
 
-    def setupPlot(self):
-        self.figure = Figure()
-        self.ax = self.figure.add_subplot(111)
+    def setupPitchPlot(self):
+        """
+        Setup pitch plot
+        """
+        # Add axes
+        self.ax = self.figure.add_subplot(111) #1row x 1col x 1st subplot
         self.ax.set_title('Real-Time Pitch Tracking')
         self.ax.set_xlabel('Time (milliseconds)')
         self.ax.set_ylabel('Pitch (Hz)')
-        self.line, = self.ax.plot([], [], 'r-')
-        self.ax.set_xlim(0, 5000)  # 5 seconds expressed in milliseconds
+
+        self.ax.set_xlim(0, 5000)  # 5 sec -> ms
         self.ax.set_ylim(20, 22050)  # Pitch range
+
+        # Stores the pitch line
+        self.line, = self.ax.plot([], [], 'r-') # TODO: account for confidence
         self.times = []
         self.pitches = []
+        
 
-    def updatePlot(self, pitch, confidence):
-        time_step = 100  # time step in milliseconds
+    def updatePitchPlot(self, pitch, confidence):
+        """
+        Update parameters for the pitch plot and draws the new canvas
+        @param: 
+            - pitch: estimated pitch in Hz
+            - confidence: confidence of the pitch estimation
+        note: both param are return values from es.pitchYin()
+        """
+        time_step = 100  # timestep (ms)
+        
+        # Update times and pitches for plotting
         self.times.append(self.times[-1] + time_step if self.times else 0)
         self.pitches.append(pitch)
         
@@ -87,7 +121,9 @@ class PitchAnalyzer(QMainWindow):
         self.canvas.draw()
 
     def toggleRecording(self):
-        # Toggle the recording state
+        """
+        Toggle application to start/stop recording when button is clicked
+        """
         if self.is_recording:
             self.is_recording = False
             self.button.setText('Start Recording')
@@ -98,9 +134,12 @@ class PitchAnalyzer(QMainWindow):
             self.button.setText('Stop Recording')
             self.stream.start_stream()
             self.statusBar().showMessage('Recording...')
+    
 
     def callback(self, in_data, frame_count, time_info, status):
-        # Audio stream callback function
+        """
+        Overloaded method for pyaudio to call, handles audio stream callback
+        """
         if self.is_recording:
             audio_data = np.frombuffer(in_data, dtype=np.int16)
             self.printPitchYin(audio_data)
@@ -111,7 +150,7 @@ class PitchAnalyzer(QMainWindow):
         audio_data_float = audio_data.astype(np.float32) / 32768.0
         pitch, pitchConfidence = self.pitchYin(audio_data_float)
         print(f"Estimated pitch: {pitch} Hz, Confidence: {pitchConfidence}")
-        self.updatePlot(pitch, pitchConfidence)
+        self.updatePitchPlot(pitch, pitchConfidence)
 
     def closeEvent(self, event):
         # Handle the close event
