@@ -1,8 +1,11 @@
 import sys
 import numpy as np
 import pyaudio
-from PyQt5.QtWidgets import QApplication, QPushButton, QVBoxLayout, QWidget, QMainWindow, QLabel
 import essentia.standard as es
+
+from PyQt5.QtWidgets import QApplication, QPushButton, QVBoxLayout, QWidget, QMainWindow, QLabel
+import qdarktheme
+
 from matplotlib.figure import Figure
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 import matplotlib.pyplot as plt
@@ -14,6 +17,7 @@ class PitchAnalyzer(QMainWindow):
         """
         self.app = QApplication(argv)
         super().__init__()
+        self.app.setStyleSheet(qdarktheme.load_stylesheet("light"))
 
         # Setup the PitchPlot (maybe other plots later)
         self.figure = Figure()
@@ -23,12 +27,17 @@ class PitchAnalyzer(QMainWindow):
         self.initPitchUI()
 
         # Initialize audio
+        self.sample_rate = 44100 # 44.1 kHz == 44100 samples/sec (CD standard)
         self.initAudio()
         self.is_recording = False
-        self.buffer = np.array([])
-        self.buffer_size = 4410  # 100ms buffer
+
+        # Plot update buffer variables
+        self.plot_buffer = np.array([])
+        self.plot_buffer_size = 4410  # 100ms buffer
+        self.current_time = 0
 
         self.pitchYin = self.ES_PitchYin()
+
 
     def run(self):
         """
@@ -37,9 +46,15 @@ class PitchAnalyzer(QMainWindow):
         self.show()
         sys.exit(self.app.exec_())
 
+
     def initPitchUI(self):
-        # Main window and central widget
-        self.setWindowTitle('Pitch Analyzer')
+        """
+        Draw the PitchAnalyzer GUI onto the main window
+        """
+        # Main window title
+        self.setWindowTitle('RT-PitchAnalyzer')
+
+        # Central widget 'layout' contains all other buttons/plots
         self.central_widget = QWidget()
         self.setCentralWidget(self.central_widget)
         layout = QVBoxLayout(self.central_widget)
@@ -56,18 +71,25 @@ class PitchAnalyzer(QMainWindow):
 
 
     def initAudio(self):
-        # Set up audio stream
+        """
+        Initialize PyAudio input stream
+        Note: Frames per buffer is 1024 samples/buffer /44100 samples/sec = .023 buffer/sec (?)
+        """
         self.audio = pyaudio.PyAudio()
-        self.stream = self.audio.open(format=pyaudio.paInt16,
-                                      channels=1,
-                                      rate=44100,
-                                      input=True,
-                                      frames_per_buffer=1024,
-                                      stream_callback=self.callback)
+        self.stream = self.audio.open(
+            format=pyaudio.paInt16,
+            channels=1,
+            rate=self.sample_rate,
+            input=True,
+            output=False,
+            frames_per_buffer=1024, # 23ms buffer (audio processing standard)
+            stream_callback=self.callback
+        )
+
 
     def ES_PitchYin(self):
         """
-        Initialize Essentia's PitchYin algorithm
+        Initialize Essentia PitchYin algorithm
         """
         #TODO: make parameters configurable
         return es.PitchYin(frameSize=2048,
@@ -77,18 +99,19 @@ class PitchAnalyzer(QMainWindow):
                            sampleRate=44100,
                            tolerance=0.15)
 
+
     def setupPitchPlot(self):
         """
-        Setup pitch plot
+        Setup pitch plot with Matplotlib
         """
         # Add axes
         self.ax = self.figure.add_subplot(111) #1row x 1col x 1st subplot
         self.ax.set_title('Real-Time Pitch Tracking')
-        self.ax.set_xlabel('Time (milliseconds)')
+        self.ax.set_xlabel('Time (seconds)')
         self.ax.set_ylabel('Pitch (Hz)')
 
-        self.ax.set_xlim(0, 5000)  # 5 sec -> ms
-        self.ax.set_ylim(20, 22050)  # Pitch range
+        self.ax.set_xlim(0, 5)  # 5 sec -> ms
+        self.ax.set_ylim(20, 3000)  # Pitch range
 
         # Stores the pitch line
         self.line, = self.ax.plot([], [], 'r-') # TODO: account for confidence
@@ -104,21 +127,25 @@ class PitchAnalyzer(QMainWindow):
             - confidence: confidence of the pitch estimation
         note: both param are return values from es.pitchYin()
         """
-        time_step = 100  # timestep (ms)
+        time_step = 0.1  # timestep (100 ms)
         
+        if confidence < 0.05:
+            print("Confidence too low, skipping plot")
+            return
+
         # Update times and pitches for plotting
         self.times.append(self.times[-1] + time_step if self.times else 0)
         self.pitches.append(pitch)
         
-        # Keep only the last 5 seconds of data
-        if self.times[-1] > 5000:
-            min_time = self.times[-1] - 5000
-            self.times = [t - min_time for t in self.times]
-            self.pitches = self.pitches[-len(self.times):]
+        # Update x-axis limits to show only the last 5 seconds of data
+        if self.times[-1] > 5:
+            min_time = self.times[-1] - 5
+            max_time = self.times[-1]
+            self.ax.set_xlim(min_time, max_time)
 
         self.line.set_data(self.times, self.pitches)
-        self.ax.set_xlim(self.times[0], self.times[-1])
         self.canvas.draw()
+
 
     def toggleRecording(self):
         """
@@ -142,8 +169,10 @@ class PitchAnalyzer(QMainWindow):
         """
         if self.is_recording:
             audio_data = np.frombuffer(in_data, dtype=np.int16)
+            self.plot_buffer = np.append(self.plot_buffer, audio_data)
             self.printPitchYin(audio_data)
         return (in_data, pyaudio.paContinue)
+
 
     def printPitchYin(self, audio_data):
         # Normalize the buffer from int16 range to floating-point range
@@ -151,6 +180,7 @@ class PitchAnalyzer(QMainWindow):
         pitch, pitchConfidence = self.pitchYin(audio_data_float)
         print(f"Estimated pitch: {pitch} Hz, Confidence: {pitchConfidence}")
         self.updatePitchPlot(pitch, pitchConfidence)
+
 
     def closeEvent(self, event):
         # Handle the close event
