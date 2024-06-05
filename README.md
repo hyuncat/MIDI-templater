@@ -3,18 +3,19 @@
 **Current goal:** Real-time pitch correction
 
 ## PitchAnalyzer.py
+(Can you guess the piece?)
 
-<img width="300" alt="Screenshot 2024-06-05 at 10 23 55 AM" src="https://github.com/hyuncat/violin-CV/assets/114366569/d9b60bd1-9915-4641-b756-2de21356d23a">
+<img width="300" alt="Screenshot 2024-06-05 at 11 05 32 AM" src="https://github.com/hyuncat/violin-CV/assets/114366569/3a1f7bfb-9e98-47b8-b573-83bfa1694c58">
 
 Currently, the program uses the Essentia library to analyze pitch from audio input (returning Hz + condifence), and PyQT5 to plot the data.
 
-The four violin strings are plotted:
+The four violin strings are marked:
 - Blue: G
 - Green: D
 - Red: A
 - Yellow: E
 
-And the pitch is plotted and tracked in real time.
+And the recorded pitch is plotted and tracked in real time.
 
 ## Todo
 
