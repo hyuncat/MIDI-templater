@@ -110,8 +110,21 @@ class PitchAnalyzer(QMainWindow):
         self.ax.set_xlabel('Time (seconds)')
         self.ax.set_ylabel('Pitch (Hz)')
 
-        self.ax.set_xlim(0, 5)  # 5 sec -> ms
-        self.ax.set_ylim(20, 3000)  # Pitch range
+        # Define violin string frequencies
+        violin_strings = {
+            'G': 196,
+            'D': 293.7,
+            'A': 440,
+            'E': 659.3
+        }
+        colors = {'G': 'blue', 'D': 'green', 'A': 'red', 'E': 'yellow'}
+
+        # Add horizontal lines for each string
+        for string, freq in violin_strings.items():
+            self.ax.axhline(y=freq, color=colors[string], linestyle='--', label=f'{string} string ({freq} Hz)')
+
+            self.ax.set_xlim(0, 5)  # 5 sec -> ms
+            self.ax.set_ylim(20, 1500)  # Pitch range
 
         # Stores the pitch line
         self.line, = self.ax.plot([], [], 'r-') # TODO: account for confidence
