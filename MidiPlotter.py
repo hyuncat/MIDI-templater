@@ -102,14 +102,22 @@ class MidiPlotter(QMainWindow):
         print(f'toggling play - is_playing: {self.is_playing}')
         if self.is_playing:
             print("pausing playback")
-            pygame.mixer.music.pause()
+            pygame.mixer.music.stop()
             self.is_playing = False
             self.playButton.setText('Play')
         else:
-            print("starting playback")
-            pygame.mixer.music.play(start=self.current_time)
-            print("unpausing playback")
-            pygame.mixer.music.unpause()
+            if pygame.mixer.music.get_pos() == -1 or pygame.mixer.music.get_pos() == 0:
+                print("starting playback")
+                print(f"current_time: {self.current_time}")
+                pygame.mixer.music.play()
+                print("starting playback")
+            else:
+                print("starting playback")
+                print(f"current_time: {self.current_time}")
+                pygame.mixer.music.set_pos(self.current_time)
+                pygame.mixer.music.play()
+                print("unpausing playback")
+                # pygame.mixer.music.unpause()
             self.is_playing = True
             self.playButton.setText('Pause')
             self.timer.start(100)  # Update every 100 ms
@@ -117,6 +125,7 @@ class MidiPlotter(QMainWindow):
 
     def slider_moved(self, position):
         self.current_time = position
+        pygame.mixer.music.set_pos(position)
         self.plotWidget.setXRange(self.current_time-5, self.current_time+5, padding=0.1)
 
 
