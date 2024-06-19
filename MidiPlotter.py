@@ -301,8 +301,6 @@ class MidiPlotter(QMainWindow):
             self.pitchData[self.current_time] = pitch
 
         
-
-
 if __name__ == '__main__':
     app = QApplication(sys.argv)
     app.setStyleSheet(qdarktheme.load_stylesheet("dark"))
