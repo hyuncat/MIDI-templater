@@ -22,7 +22,7 @@ class MidiPlotter(QMainWindow):
         pygame.mixer.init()  # Initialize the pygame mixer
 
         self.midi_file = midi_file
-        self.soundfont = 'MuseScore_General.sf3'
+        self.soundfont = 'data/MuseScore_General.sf3'
         self.FS = FluidSynth(self.soundfont)
         
         self.instrument_dfs = self.load_midi_data(midi_file)
@@ -43,8 +43,6 @@ class MidiPlotter(QMainWindow):
         self.pitchYin = self.ES_PitchYin()
         
 
-        # self.play_obj = None # simpleaudio play object
-
     def load_midi_data(self, midi_file):
         """Load the MIDI data and convert to a pd.DataFrame for each instrument"""
         wav_filename = midi_file.replace('.mid', '.wav')
@@ -64,7 +62,9 @@ class MidiPlotter(QMainWindow):
             instrument_dfs[instrument.program] = df
         return instrument_dfs
 
+
     def initUI(self):
+        """Initialize the UI with the play button, slider, and plot widget"""
         self.main_widget = QWidget(self)
         self.setCentralWidget(self.main_widget)
         self.layout = QVBoxLayout(self.main_widget)
@@ -96,6 +96,7 @@ class MidiPlotter(QMainWindow):
 
 
     def plot_midi_data(self):
+        """Plot the MIDI data on the plot widget"""
         self.plotWidget.clear()
         self.violin_df = self.instrument_dfs[40]
         self.bar_height = 1  # Fixed height for all bars
@@ -129,17 +130,19 @@ class MidiPlotter(QMainWindow):
             y=normalized_pitches, 
             pen={'color': 'r', 'width': 2})
         self.plotWidget.addItem(self.pitchPlot)
+
+        self.plotWidget.setXRange(self.current_time - 5, self.current_time + 5, padding=0.1)
         
 
     def toggle_play(self):
         """Toggle between playing and pausing the MIDI."""
         if self.is_playing:
             pygame.mixer.music.set_pos(self.current_time)
-            pygame.mixer.music.pause()
+            pygame.mixer.music.pause() # Pause music
             self.is_playing = False
             self.playButton.setText('Play')
-            self.timer.stop()
-            self.stream.stop_stream()
+            self.timer.stop() # Stop updating the slider
+            self.stream.stop_stream() # Stops recording
             print('Pausing')
         else:
             pygame.mixer.music.play()
@@ -150,34 +153,27 @@ class MidiPlotter(QMainWindow):
             self.stream.start_stream()
             print('Playing')
         
-        
 
     def slider_moved(self, position):
         """Called when user moves the slider to [position]"""
         self.current_slider = position
         self.current_time = self.current_slider / 10
         self.slider.setValue(int(self.current_slider))
+        pygame.mixer.music.set_pos(self.slider.value() / 10)
         self.update_plot()
 
     def slider_changed(self):
         """Called whenever slider's value changes"""
-        if self.is_playing:
-            original_stderr = sys.stderr
-            sys.stderr = open(os.devnull, 'w')
-            pygame.mixer.music.set_pos(self.slider.value())
-            sys.stderr.close()
-            sys.stderr = original_stderr
-            self.current_time = pygame.mixer.music.get_pos()
-        self.current_slider = self.current_time * 10
-        self.slider.setValue(int(self.current_slider))
         self.update_plot()
 
     def update_slider_with_timer(self):
         """Called at each self.timer.timeout.connect() to update the slider value"""
+        print(f'Old slider: {self.current_slider}')
         if self.is_playing:
             self.current_slider += 1 # where 1 tick == 100 ms
             self.current_time = self.current_slider / 10
             self.slider.setValue(int(self.current_slider))
+            print(f'Updating slider to {self.current_time} sec')
             self.update_plot()
 
     def update_plot(self):
@@ -191,7 +187,7 @@ class MidiPlotter(QMainWindow):
         # Normalize pitch data (you might need to adjust this formula based on your specific pitch range)
         normalized_pitches = [(12*np.log2(pitch/440)+69) for pitch in pitches]
 
-        print(f'Plotting pitches: {normalized_pitches}')
+        # print(f'Plotting pitches: {normalized_pitches}')
         if hasattr(self, 'pitchPlot'):
             self.plotWidget.removeItem(self.pitchPlot)
         self.pitchPlot = pg.PlotCurveItem(
@@ -206,7 +202,6 @@ class MidiPlotter(QMainWindow):
         self.timer.stop()
         self.playButton.setText('Play')
         self.is_playing
-
 
     def initAudio(self):
         """
@@ -223,7 +218,6 @@ class MidiPlotter(QMainWindow):
             frames_per_buffer=1024, # 23ms buffer (audio processing standard)
             stream_callback=self.callback
         )
-
 
     def ES_PitchYin(self):
         """
@@ -248,7 +242,6 @@ class MidiPlotter(QMainWindow):
             self.printPitchYin(audio_data)
         return (in_data, pyaudio.paContinue)
 
-
     def printPitchYin(self, audio_data):
         # Normalize the buffer from int16 range to floating-point range
         audio_data_float = audio_data.astype(np.float32) / 32768.0
@@ -263,7 +256,7 @@ class MidiPlotter(QMainWindow):
 
 if __name__ == '__main__':
     app = QApplication(sys.argv)
-    midi_file_path = 'mozart_vc4_mvt1.mid'  # Replace with your actual MIDI file path
+    midi_file_path = 'data/mozart_vc4_mvt1.mid'  # Replace with your actual MIDI file path
     ex = MidiPlotter(midi_file_path)
     ex.show()
     sys.exit(app.exec())
