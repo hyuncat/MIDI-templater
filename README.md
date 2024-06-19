@@ -6,7 +6,7 @@
 
 GUI class in `MidiPlotter.py` (Can you guess the piece?)
 
-<img width="400" alt="Screenshot 2024-06-19 at 3 23 32 AM" src="https://github.com/hyuncat/violin-CV/assets/114366569/9ff7ffa6-a111-4ffe-8cc2-725f2f5f8245">
+<img width="420" alt="Screenshot 2024-06-19 at 5 01 06 AM" src="https://github.com/hyuncat/violin-CV/assets/114366569/3a6ba656-5e65-4535-ad6d-c6f16e76b38d">
 
 #### Plot axes and values:
 - x-axis: Seconds since beginning of recording
