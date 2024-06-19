@@ -2,20 +2,24 @@
 
 **Current goal:** Real-time pitch correction
 
-## PitchAnalyzer.py
-(Can you guess the piece?)
+## MidiPlotter.py
 
-<img width="300" alt="Screenshot 2024-06-05 at 11 05 32 AM" src="https://github.com/hyuncat/violin-CV/assets/114366569/3a1f7bfb-9e98-47b8-b573-83bfa1694c58">
+GUI class in `MidiPlotter.py` (Can you guess the piece?)
 
-Currently, the program uses the Essentia library to analyze pitch from audio input (returning Hz + condifence), and PyQT5 to plot the data.
+<img width="400" alt="Screenshot 2024-06-19 at 3 23 32 AM" src="https://github.com/hyuncat/violin-CV/assets/114366569/9ff7ffa6-a111-4ffe-8cc2-725f2f5f8245">
 
-The four violin strings are marked:
-- Blue: G
-- Green: D
-- Red: A
-- Yellow: E
+#### Plot axes and values:
+- x-axis: Seconds since beginning of recording
+- y-axis: Midi number (corresponding to a pitch)
+- Blue piano rolls: MIDI violin pitches
+- Red line: User audio input
 
-And the recorded pitch is plotted and tracked in real time.
+### Currently
+
+Currently, the program accepts a MIDI input and produces a piano roll visualization for the 'Violin' instrument. When users press **play**, the MIDI starts playing and it also begins to capture the audio, where the user can play violin. Their recorded audio pitch is then plotted on the graph and can be compared in real time to what the MIDI should sound like.
+
+To extract the pitch from the audio frequency data, the program uses the PitchYin algorithm from Essentia library (returning Hz + condifence). PyQT6 is used for the GUI and pyqtgraph offers fast real-time plotting updates.
+
 
 ## Todo
 
