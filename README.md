@@ -23,12 +23,20 @@ To extract the pitch from the audio frequency data, the program uses the PitchYi
 
 ## Todo
 
-Next goal is to integrate two modes of pitch correction:
+Next goal is to create a minimum viable use case for the program. This includes integrating the following features:
 
-### 1. Out of tune
+### 1. Able to playback recorded audio from earlier points
 
-Given a tuning standard (e.g., A=440Hz), provide users a notification within some threshold that they are out of tune, and by how much.
+Currently, the program allows you to scrub to early parts and see how your performance differs from the MIDI, but there is no way to play back the recording it captured. The aim is to allow playback of either: 
 
-### 2. Wrong note
+- Just the MIDI
+- Just their recorded audio
+- Or both overlayed on top of each other.
 
-Given a YouTube link, convert to MIDI or MP3 and store as an array of pitches to compare user input to, and correct users if they play a wrong note - what they did play, and what they should have played.
+To provide audio feedback / review of the difference in their playing alongside the visual differences.
+
+### 2. MIDI tempo control
+
+While currently the program only plays back and displays the MIDI data at a set tempo, our second goal is to dynamically scale all the note lengths longer or shorter depending on the user's desired tempo. Using the scaled MIDI data, we want to generate and play back the desired slower/faster audio waveform in the program.
+
+(And perhaps in the future, we are considering to implement dynamic time warping to 'snap' a user's pitches to the MIDI, so even without being perfectly in time they can isolate their performance analysis to just their intonation.)
