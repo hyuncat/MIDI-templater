@@ -3,9 +3,12 @@ import os
 import pandas as pd
 import numpy as np
 
-from PyQt6.QtWidgets import QMainWindow, QApplication, QSlider, QVBoxLayout, QWidget, QPushButton
+from PyQt6.QtWidgets import QMainWindow, QApplication, QSlider, QVBoxLayout, QHBoxLayout, QWidget, QPushButton, QLabel
 from PyQt6.QtCore import Qt, QTimer
+from PyQt6.QtGui import QFont 
+import qdarktheme
 import pyqtgraph as pg
+from pyqtgraph.Qt import QtCore, QtGui
 import pygame
 
 import pretty_midi
@@ -69,15 +72,41 @@ class MidiPlotter(QMainWindow):
         self.setCentralWidget(self.main_widget)
         self.layout = QVBoxLayout(self.main_widget)
 
-        self.playButton = QPushButton('Play', self)
-        self.playButton.clicked.connect(self.toggle_play)
-        self.layout.addWidget(self.playButton)
+        # Set title
+        self.setWindowTitle('Real-Time Pitch Correction')
 
-        self.initSlider()
+        # Set heading label
+        self.headingLabel = QLabel('Real-Time Pitch Correction', self)
+        self.headingLabel.setAlignment(Qt.AlignmentFlag.AlignCenter) 
+        # Set heading font
+        font = QFont()
+        font.setPointSize(18)  # Set the font size to 18 points, adjust as needed
+        self.headingLabel.setFont(font)
+        self.layout.addWidget(self.headingLabel)  # Add the label to the layout 
 
         self.plotWidget = pg.PlotWidget()
         self.layout.addWidget(self.plotWidget)
         self.plot_midi_data()
+
+        # Add slider
+        self.initSlider()
+
+        # Create a horizontal layout for buttons
+        self.buttonLayout = QHBoxLayout()
+
+        # Play Button
+        self.playButton = QPushButton('Play', self)
+        self.playButton.clicked.connect(self.toggle_play)
+        self.buttonLayout.addWidget(self.playButton)
+
+        # Reset Button
+        self.resetButton = QPushButton('Reset recording', self)
+        self.resetButton.clicked.connect(self.clear_pitch_data)
+        self.buttonLayout.addWidget(self.resetButton)
+
+        # Add the button layout to the main layout
+        self.layout.addLayout(self.buttonLayout)
+
 
     def initSlider(self):
         """Initialize the slider with min/max values and its connected signals"""
@@ -107,7 +136,8 @@ class MidiPlotter(QMainWindow):
             y=y_positions,  # Adjusted y position
             height=self.bar_height,  # Fixed height
             width=self.violin_df['duration'], 
-            brush='b')
+            brush='b',
+            name='MIDI')
         self.plotWidget.addItem(self.bars)
 
         # The current time line (red)
@@ -128,9 +158,19 @@ class MidiPlotter(QMainWindow):
         self.pitchPlot = pg.PlotCurveItem(
             x=times, 
             y=normalized_pitches, 
-            pen={'color': 'r', 'width': 2})
+            pen={'color': 'r', 'width': 2},
+            name='Recorded Pitch')
         self.plotWidget.addItem(self.pitchPlot)
 
+        self.legend = pg.LegendItem(offset=(55, 10))
+        self.legend.setParentItem(self.plotWidget.graphicsItem())
+        self.legend.addItem(self.bars, 'MIDI')
+        self.legend.addItem(self.pitchPlot, 'Recorded Pitch')
+
+        self.plotWidget.setLabel('bottom', 'Time (s)')  # X-axis label
+        self.plotWidget.setLabel('left', 'Pitch (MIDI #)')  # Y-axis label
+        
+        # Adjust plot margins
         self.plotWidget.setXRange(self.current_time - 5, self.current_time + 5, padding=0.1)
         
 
@@ -180,21 +220,30 @@ class MidiPlotter(QMainWindow):
         """Updates the plot to reflect the current time based on the slider's position."""
         self.plotWidget.setXRange(self.current_time - 5, self.current_time + 5, padding=0.1)
         self.currentTimeLine.setPos(self.current_time)
-        # Plot pitch data as scatter points
-        times = list(self.pitchData.keys())
-        pitches = [self.pitchData[time] for time in times]
-        
-        # Normalize pitch data (you might need to adjust this formula based on your specific pitch range)
-        normalized_pitches = [(12*np.log2(pitch/440)+69) for pitch in pitches]
 
-        # print(f'Plotting pitches: {normalized_pitches}')
-        if hasattr(self, 'pitchPlot'):
+        if self.pitchData:
+            # Plot pitch data as scatter points
+            times = list(self.pitchData.keys())
+            pitches = [self.pitchData[time] for time in times]
+            
+            # Normalize pitch data (you might need to adjust this formula based on your specific pitch range)
+            normalized_pitches = [(12*np.log2(pitch/440)+69) for pitch in pitches]
+
+            # print(f'Plotting pitches: {normalized_pitches}')
+            if hasattr(self, 'pitchPlot'):
+                self.plotWidget.removeItem(self.pitchPlot)
+            self.pitchPlot = pg.PlotCurveItem(
+                x=times, 
+                y=normalized_pitches, 
+                pen={'color': 'r', 'width': 2})
+            self.plotWidget.addItem(self.pitchPlot)
+        else:
             self.plotWidget.removeItem(self.pitchPlot)
-        self.pitchPlot = pg.PlotCurveItem(
-            x=times, 
-            y=normalized_pitches, 
-            pen={'color': 'r', 'width': 2})
-        self.plotWidget.addItem(self.pitchPlot)
+
+    def clear_pitch_data(self):
+        """Clears the pitch data and updates the plot."""
+        self.pitchData.clear()  # Reset the pitch data dictionary
+        self.update_plot()  # Update the plot to reflect the cleared data
         
 
     def stop_midi(self):
@@ -226,8 +275,8 @@ class MidiPlotter(QMainWindow):
         #TODO: make parameters configurable
         return es.PitchYin(frameSize=2048,
                            interpolate=True,
-                           maxFrequency=22050,
-                           minFrequency=20,
+                           maxFrequency=5000,
+                           minFrequency=150,
                            sampleRate=44100,
                            tolerance=0.15)
     
@@ -256,7 +305,8 @@ class MidiPlotter(QMainWindow):
 
 if __name__ == '__main__':
     app = QApplication(sys.argv)
-    midi_file_path = 'data/mozart_vc4_mvt1.mid'  # Replace with your actual MIDI file path
+    app.setStyleSheet(qdarktheme.load_stylesheet("dark"))
+    midi_file_path = 'data/mozart_vc4_mvt1.mid' 
     ex = MidiPlotter(midi_file_path)
     ex.show()
     sys.exit(app.exec())
