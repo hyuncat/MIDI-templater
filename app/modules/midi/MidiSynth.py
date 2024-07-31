@@ -9,12 +9,15 @@ class MidiSynth:
         Keeps track of currently_playing notes to ensure all note playback stops
         when paused.
         """
+        print("Loading MidiSynth...")
         self.synth = fluidsynth.Synth()
 
         # Coreaudio is for MacOS
         # Other options: 'alsa', 'dsound', etc., based on OS
         self.synth.start(driver='coreaudio')
         self.soundfont_id = self.synth.sfload(soundfont_path)
+
+        print("Synth + soundfont loaded.")
         
         # Track playing notes: {channel: [midi_number, ...]}
         self.currently_playing = {}

@@ -91,3 +91,7 @@ class Slider(QWidget):
     def get_current_time(self) -> float:
         """Get the current time in seconds from the slider."""
         return self.current_tick / self.TICKS_PER_SEC
+
+    def update_slider_max(self, new_length: int) -> None:
+        """Update the slider's maximum value (based on AudioData length)."""
+        self.slider.setRange(0, new_length)

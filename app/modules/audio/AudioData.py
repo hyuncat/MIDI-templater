@@ -1,10 +1,12 @@
 import numpy as np
 import threading
+import os
+import essentia.standard as es
 from app.modules.midi.MidiData import MidiData
 from app.config import AppConfig
 
 class AudioData:
-    def __init__(self, MidiData: MidiData=None):
+    def __init__(self, MidiData: MidiData=None, audio_filepath: str=None):
         """
         Initialize the RecordingData with an array of zeros of length equal to the MIDI file length.
         @param:
@@ -16,16 +18,31 @@ class AudioData:
         # based on MIDI file length and app's SAMPLE_RATE
         if self._MidiData is not None:
             self.capacity = int(self._MidiData.get_length() * AppConfig.SAMPLE_RATE)
-        # If no MIDI file is provided, use a default length of 60 seconds
-        else:
+            self.data = np.zeros(self.capacity, dtype=np.float32)
+        
+        else: # If no MIDI file is provided, use a default length of 60 seconds
             DEFAULT_LENGTH = 60
             self.capacity = int(DEFAULT_LENGTH * AppConfig.SAMPLE_RATE)
             
-        self.data = np.zeros(self.capacity, dtype=np.float32)
+        if audio_filepath is not None:
+            self.load_data(audio_filepath) # (also sets capacity)
 
         # To ensure thread-safe access to the buffer
         # as AudioRecorder and AudioPlayer will be accessing it
         self.lock = threading.Lock()
+
+    def load_data(self, audio_filepath: str):
+        """
+        Load audio data into the recording data array.
+        @param:
+            - audio_data (np.ndarray): audio data to load into the recording data array
+        """
+        loader = es.MonoLoader(filename=audio_filepath, sampleRate=AppConfig.SAMPLE_RATE)
+        audio_data = loader()
+
+        # Set the loaded audio from file as the new self.audio_data and update capacity
+        self.data = audio_data
+        self.capacity = len(audio_data)
 
     def write_data(self, buffer: np.ndarray, start_time: float=0):
         """

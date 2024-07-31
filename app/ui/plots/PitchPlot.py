@@ -1,8 +1,10 @@
 from PyQt6.QtWidgets import QWidget, QVBoxLayout
 import pyqtgraph as pg
 import numpy as np
+import pandas as pd
 import matplotlib.pyplot as plt
 from app.modules.midi.MidiData import MidiData
+from app.modules.pitch.PitchAnalyzer import PitchAnalyzer
 
 class PitchPlot(QWidget):
     def __init__(self):
@@ -13,7 +15,7 @@ class PitchPlot(QWidget):
             'label_text': '#000000',  # Black color
             'MIDI_normal': '#000000',  # Black
             'MIDI_darker': '#377333',  # Green
-            'user': '#0000FF',  # Blue
+            'user_note': '#B66CD3',  # Lavendar
             'timeline': '#FF0000',  # Red color
             'staff_line': '#A9A9A9'  # Dark Gray for staff lines
         }
@@ -27,7 +29,7 @@ class PitchPlot(QWidget):
         }
 
         self.init_ui()
-        self.x_range = 10  # Show 10 seconds of pitch data at once
+        self.x_range = 3  # Show 10 seconds of pitch data at once
         self.current_time = 0
         self.scatter = None
 
@@ -96,37 +98,52 @@ class PitchPlot(QWidget):
         self.plot.setXRange(self.current_time - self.x_range / 2, self.current_time + self.x_range / 2)
         self.plot.setYRange(60, 80)  # Adjust the Y range to ensure the staff lines are visible
 
-    def plot_user(self, pitch_values, pitch_confidences, pitch_times, min_confidence=0.0):
+    def plot_user(self, user_pitchdf: pd.DataFrame, min_confidence=0.0):
         """Plot user pitch data on the pitch plot with a confidence filter."""
         # Filter out pitches below the minimum confidence
-        filtered_data = [
-            (pitch, confidence, time) for pitch, confidence, time in zip(pitch_values, pitch_confidences, pitch_times)
-            if confidence >= min_confidence
-        ]
+        user_pitchdf = user_pitchdf[user_pitchdf['confidence'] >= min_confidence]
 
-        if not filtered_data:
+        if user_pitchdf.empty:
+            print('No pitches above the minimum confidence threshold.')
             return
 
-        filtered_pitches, filtered_confidences, filtered_times = zip(*filtered_data)
+        notes, note_times = PitchAnalyzer.note_segmentation(user_pitchdf, window_size=11, threshold=0.5)
 
-        # Normalize pitch data to MIDI numbers
-        normalized_pitches = [(12 * np.log(pitch / 220) / np.log(2) + 57) for pitch in filtered_pitches]
+        # Clear previous note lines
+        if hasattr(self, 'note_lines'):
+            for line in self.note_lines:
+                self.plot.removeItem(line)
+        else:
+            self.note_lines = []
 
+        # Add line segments underneath each detected pitch
+        if len(notes) > 1:
+            for j in range(len(notes) - 1):
+                line = pg.PlotCurveItem(
+                    x=[note_times[j], note_times[j + 1]],
+                    y=[notes[j+1], notes[j+1]],
+                    pen=pg.mkPen(self.colors['user_note'], width=25),
+                    name='New Pitches'
+                )
+                self.plot.addItem(line)
+                self.note_lines.append(line)
+
+        # --- PLOT USER PITCHES ---
         # Use the viridis colormap to map confidence values to colors
         colormap = plt.get_cmap('viridis')
-        colors = [colormap(confidence) for confidence in filtered_confidences]
+        colors = [colormap(confidence) for confidence in user_pitchdf['confidence']]
 
         # Convert colors to a format that pyqtgraph can use
         colors = [(int(r*255), int(g*255), int(b*255), int(a*255)) for r, g, b, a in colors]
         
         # Remove the previous scatter plot item if it exists
-        if self.scatter is not None:
+        if hasattr(self, 'scatter'):
             self.plot.removeItem(self.scatter)
 
         # Create a ScatterPlotItem with the calculated colors
         self.scatter = pg.ScatterPlotItem(
-            x=filtered_times,
-            y=normalized_pitches,
+            x=user_pitchdf['time'],
+            y=user_pitchdf['midi_pitch'],
             pen=None,
             brush=colors,
             size=5,
@@ -135,6 +152,7 @@ class PitchPlot(QWidget):
 
         # Add the scatter plot to the plot widget
         self.plot.addItem(self.scatter)
+
 
     def move_plot(self, current_time: float):
         """Move the plot to the current time."""
@@ -148,3 +166,7 @@ class PitchPlot(QWidget):
                 bar.setOpts(brush=self.colors['MIDI_darker'])
             else:
                 bar.setOpts(brush=self.colors['MIDI_normal'])
+
+
+
+

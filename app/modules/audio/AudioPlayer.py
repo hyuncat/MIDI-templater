@@ -20,16 +20,19 @@ class AudioPlayer:
         self.playback_thread = None
         self.thread_stop_event = threading.Event()
 
-    def load_audio_file(self, audio_file_path: str):
-        # Load the audio file as mono
-        audio_buffer = MonoLoader(filename=audio_file_path, sampleRate=AppConfig.SAMPLE_RATE)()
-
-        self._AudioData = AudioData()
-        self._AudioData.write_data(audio_buffer)
-
+    def load_audio_file(self, audio_filepath: str):
+        """
+        Loads audio data from a file into the AudioPlayer.
+        For prerecorded audio playback in the app.
+        """
+        self._AudioData = AudioData(audio_filepath=audio_filepath)
         self.current_time = 0 # Reset current time
 
     def load_audio_data(self, audio_data: AudioData):
+        """
+        Loads audio data directly from an AudioData object into the AudioPlayer.
+        Used for when user records their own audio through the app.
+        """
         self._AudioData = audio_data
         self.current_time = 0
 
