@@ -73,7 +73,9 @@ class RecordTab(QWidget):
 
         # Load the audio file as mono
         # self.user_pitches, self.user_pitch_confidences, self.pitch_times = PitchAnalyzer().get_buffer_pitch(self._AudioData)
-        self._user_pitchdf = PitchAnalyzer().user_pitchdf(self._AudioData)
+        self._PitchAnalyzer = PitchAnalyzer()
+        self.user_onsets = self._PitchAnalyzer.detect_onsets(self._AudioData)
+        self.user_pitchdf = self._PitchAnalyzer.user_pitchdf(self._AudioData)
         
     def init_ui(self):
         # Add recording slider
@@ -89,7 +91,7 @@ class RecordTab(QWidget):
         # Add pitch plot
         self._PitchPlot = PitchPlot()
         self._PitchPlot.plot_midi(self._MidiData)
-        self._PitchPlot.plot_user(self._user_pitchdf, 0)
+        self._PitchPlot.plot_user(self.user_pitchdf, self.user_onsets, 0)
         self._layout.addWidget(self._PitchPlot)
 
         self._layout.addWidget(self._Slider)
@@ -99,30 +101,64 @@ class RecordTab(QWidget):
 
     def init_confidence_input(self):
         """Initialize the confidence threshold input"""
-        self.confidenceLayout = QHBoxLayout()
+        self.plotControlLayout = QHBoxLayout()
+
+        # Min confidence for displaying pitches
         self.confidence_label = QLabel("Min Confidence:")
         self.confidence_input = QLineEdit()
         self.confidence_input.setText(str(self.min_confidence))
+
+        # Window size for note detection
+        self.window_size_label = QLabel("Window Size:")
+        self.window_size_input = QLineEdit()
+        self.window_size_input.setText("11")
+
+        # Threshold for note detection
+        self.note_threshold_label = QLabel("Note Threshold:")
+        self.note_threshold_input = QLineEdit()
+        self.note_threshold_input.setText("0.75")
+
+        # Threshold for harmonic grouping
+        self.harmonic_range_label = QLabel("Harmonic Range:")
+        self.harmonic_range_input = QLineEdit()
+        self.harmonic_range_input.setText("0.75")
         
         # Create a submit button
         self.submit_button = QPushButton("Submit")
-        self.submit_button.clicked.connect(self.update_confidence_threshold)
+        self.submit_button.clicked.connect(self.update_pitch_plot)
         
-        self.confidenceLayout.addWidget(self.confidence_label)
-        self.confidenceLayout.addWidget(self.confidence_input)
-        self.confidenceLayout.addWidget(self.submit_button)
-        self._layout.addLayout(self.confidenceLayout)
+        # Add the widgets to the layout
+        self.plotControlLayout.addWidget(self.confidence_label)
+        self.plotControlLayout.addWidget(self.confidence_input)
+        self.plotControlLayout.addWidget(self.window_size_label)
+        self.plotControlLayout.addWidget(self.window_size_input)
+        self.plotControlLayout.addWidget(self.note_threshold_label)
+        self.plotControlLayout.addWidget(self.note_threshold_input)
+        self.plotControlLayout.addWidget(self.harmonic_range_label)
+        self.plotControlLayout.addWidget(self.harmonic_range_input)
+        self.plotControlLayout.addWidget(self.submit_button)
 
-    def update_confidence_threshold(self):
+        self._layout.addLayout(self.plotControlLayout)
+
+    def update_pitch_plot(self):
         """Update the confidence threshold and re-plot user pitches"""
         try:
-            self.min_confidence = float(self.confidence_input.text())
-        except ValueError:
-            self.min_confidence = 0.0
-            self.confidence_input.setText(str(self.min_confidence))
+            min_confidence = float(self.confidence_input.text())
+            window_size = int(self.window_size_input.text())
+            note_threshold = float(self.note_threshold_input.text())
+            harmonic_range = float(self.harmonic_range_input.text())
 
-        # Re-plot user pitches with the new confidence threshold
-        self._PitchPlot.plot_user(self._user_pitchdf, self.min_confidence)
+            # Re-plot user pitches with new note estimation, harmonic grouping, confidence parameters
+            print("Updating pitch plot with new parameters...\n---")
+            self._PitchPlot.plot_user(self.user_pitchdf, self.user_onsets, min_confidence, 
+                                      window_size, note_threshold, harmonic_range)
+            print("Done!")
+            
+        except ValueError:
+            # Print error and don't update plot
+            print("Invalid input - failed to parse input as float or int.")
+
+        
 
     def init_buttons(self):
         """Init playback/record buttons"""
@@ -138,7 +174,7 @@ class RecordTab(QWidget):
         # self.record_button.clicked.connect(self.toggle_record)
         # self.buttonLayout.addWidget(self.record_button)
 
-        # # Listen back to audio
+        # Listen back to audio
         self.user_play_button = QPushButton('Play Recorded Audio')
         self.user_play_button.clicked.connect(self.toggle_user_playback)
         self.buttonLayout.addWidget(self.user_play_button)

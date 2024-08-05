@@ -17,7 +17,8 @@ class PitchPlot(QWidget):
             'MIDI_darker': '#377333',  # Green
             'user_note': '#B66CD3',  # Lavendar
             'timeline': '#FF0000',  # Red color
-            'staff_line': '#A9A9A9'  # Dark Gray for staff lines
+            'staff_line': '#A9A9A9',  # Dark Gray for staff lines
+            'onset': '#B1B1B1'  # Light blue for onsets
         }
 
         self.staff_lines = {
@@ -29,7 +30,7 @@ class PitchPlot(QWidget):
         }
 
         self.init_ui()
-        self.x_range = 3  # Show 10 seconds of pitch data at once
+        self.x_range = 3  # Show 3 seconds of pitch data at once
         self.current_time = 0
         self.scatter = None
 
@@ -98,7 +99,9 @@ class PitchPlot(QWidget):
         self.plot.setXRange(self.current_time - self.x_range / 2, self.current_time + self.x_range / 2)
         self.plot.setYRange(60, 80)  # Adjust the Y range to ensure the staff lines are visible
 
-    def plot_user(self, user_pitchdf: pd.DataFrame, min_confidence=0.0):
+
+    def plot_user(self, user_pitchdf: pd.DataFrame, onsets=None, min_confidence:float=0.0, 
+                  window_size:int=11, note_threshold:float=0.75, harmonic_range:float=0.75):
         """Plot user pitch data on the pitch plot with a confidence filter."""
         # Filter out pitches below the minimum confidence
         user_pitchdf = user_pitchdf[user_pitchdf['confidence'] >= min_confidence]
@@ -106,9 +109,51 @@ class PitchPlot(QWidget):
         if user_pitchdf.empty:
             print('No pitches above the minimum confidence threshold.')
             return
+        
+        # --- PLOT ONSETS ---
+        if hasattr(self, 'onset_lines'):
+            for line in self.onset_lines:
+                self.plot.removeItem(line)
+        else:
+            self.onset_lines = []
 
-        notes, note_times = PitchAnalyzer.note_segmentation(user_pitchdf, window_size=11, threshold=0.5)
+        if onsets is not None:
+            y_center = (user_pitchdf['midi_pitch'].min() + user_pitchdf['midi_pitch'].max()) / 2
+            for onset in onsets:
+                line = pg.PlotCurveItem(
+                    x=[onset, onset], # Small line segment around the onset time
+                    y=[self.staff_lines['G4'], self.staff_lines['D5']],
+                    pen=pg.mkPen(self.colors['onset'], width=4)
+                )
+                self.plot.addItem(line)
+                self.onset_lines.append(line)
 
+        note_df = PitchAnalyzer.note_segmentation(user_pitchdf, window_size=window_size, threshold=note_threshold)
+
+        # --- PLOT HARMONIC GROUPS ---
+        harmonic_groups = PitchAnalyzer.group_harmonics(note_df, harmonic_range=harmonic_range)
+
+        if hasattr(self, 'harmonic_lines'):
+            for line in self.harmonic_lines:
+                self.plot.removeItem(line)
+        else:
+            self.harmonic_lines = []
+
+        for group in harmonic_groups:
+            
+            if len(group) > 1:
+                times = [note['time'] for note in group]
+                midi_pitches = [note['midi_pitch'] for note in group]
+                line = pg.PlotCurveItem(
+                    x=times,
+                    y=midi_pitches,
+                    pen=pg.mkPen(self.colors['onset'], width=15),
+                    name='Harmonics'
+                )
+                self.plot.addItem(line)
+                self.harmonic_lines.append(line)
+
+        # --- NOTES LINES ---
         # Clear previous note lines
         if hasattr(self, 'note_lines'):
             for line in self.note_lines:
@@ -117,16 +162,25 @@ class PitchPlot(QWidget):
             self.note_lines = []
 
         # Add line segments underneath each detected pitch
-        if len(notes) > 1:
-            for j in range(len(notes) - 1):
+        if len(note_df) > 1:
+            for j in range(len(note_df) - 1):
+                # mark start of note with red line
+                start_line = pg.PlotCurveItem( 
+                    x=[note_df.iloc[j]['time'], note_df.iloc[j]['time']],
+                    y=[note_df.iloc[j]['midi_pitch']-1, note_df.iloc[j]['midi_pitch']+1],
+                    pen=pg.mkPen(pg.mkColor('r'), width=10),
+                    name='Note Start'
+                )
                 line = pg.PlotCurveItem(
-                    x=[note_times[j], note_times[j + 1]],
-                    y=[notes[j+1], notes[j+1]],
+                    x=[note_df.iloc[j]['time'], note_df.iloc[j + 1]['time']],
+                    y=[note_df.iloc[j]['midi_pitch'], note_df.iloc[j]['midi_pitch']],
                     pen=pg.mkPen(self.colors['user_note'], width=25),
-                    name='New Pitches'
+                    name='Notes'
                 )
                 self.plot.addItem(line)
                 self.note_lines.append(line)
+                self.plot.addItem(start_line)
+                self.note_lines.append(start_line) 
 
         # --- PLOT USER PITCHES ---
         # Use the viridis colormap to map confidence values to colors
