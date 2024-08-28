@@ -2,13 +2,11 @@
 
 Load a MIDI file, an audio file, and see/playback the differences!
 
-<img width="600" alt="app_preview" src="https://github.com/user-attachments/assets/e13cbf59-b5df-488e-8877-294deea74fa7">
+<img width="600" alt="app_preview" src="https://github.com/user-attachments/assets/9325f1c3-7368-401d-9371-430639028987">
 
 ### About the graph
-- Treble clef staff lines are in black - the demo MIDI/audio files are for violin :-)
-- MIDI notes are in black
-- The audio file is parsed to detect all pitches, plotted in viridis color corresponding to the confidence of the pitch estimate.
-- Note segmentation is estimated using a rolling median and is displayed in purple underneath each new detected note.
+- MIDI notes are in grey
+- The audio file is parsed to detect all pitches using the pYIN algorithm, plotted in various opacities of pink corresponding to the probability of the pitch estimate.
 
 ### Currently working on...
-Improving accuracy of onset-matching in dynamic time warping by retrieving the different-enough note onsets as 'annotations'.
+Choosing the best probability to follow along this set of all possible pitch candidates to find a voicing estimate.
