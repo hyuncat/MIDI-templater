@@ -3,9 +3,11 @@ import essentia
 import numpy as np
 import pandas as pd
 from math import ceil
+import librosa
 
 from app.config import AppConfig
 from app.modules.audio.AudioData import AudioData
+from app.modules.pitch.Yin import pitch_yin
 
 class PitchAnalyzer:
     def __init__(self):
@@ -15,6 +17,8 @@ class PitchAnalyzer:
         """
         MIN_VIOLIN_FREQ = 196
         MAX_VIOLIN_FREQ = 5000
+
+        # --- Pitch detection algorithms ---
         self.pitch_yin = es.PitchYin(
             frameSize=AppConfig.FRAME_SIZE,
             interpolate=True,
@@ -23,7 +27,6 @@ class PitchAnalyzer:
             sampleRate=AppConfig.SAMPLE_RATE,
             tolerance=0.15 # Tolerance for peak detection (default)
         )
-
         self.pitch_melodia = es.PitchMelodia(
             frameSize=AppConfig.FRAME_SIZE,
             hopSize=AppConfig.HOP_SIZE,
@@ -33,12 +36,15 @@ class PitchAnalyzer:
             sampleRate=AppConfig.SAMPLE_RATE
         )
 
-        # Onset detection algorithms
-        self.od_complex = es.OnsetDetection(method='complex', sampleRate=AppConfig.SAMPLE_RATE)
-        # Auxiliary algorithms to compute magnitude and phase
+        # --- Onset detection algorithms ---
+        self.od_complex = es.OnsetDetection(
+            method='complex', 
+            sampleRate=AppConfig.SAMPLE_RATE
+        )
+        # Auxiliary algorithms to compute magnitude and phase (for onset detection)
         self.w = es.Windowing(type='hann', size=AppConfig.FRAME_SIZE)
-        self.fft = es.FFT(size=AppConfig.FRAME_SIZE)  # Outputs a complex FFT vector.
-        self.c2p = es.CartesianToPolar()  # Converts it into a pair of magnitude and phase vectors.
+        self.fft = es.FFT(size=AppConfig.FRAME_SIZE)  # A complex FFT vector
+        self.c2p = es.CartesianToPolar()  # Converts audio -> pair of magnitude and phase vectors
 
 
     def get_pitch(self, audio_frame: np.ndarray) -> tuple[float, float]:
@@ -57,6 +63,7 @@ class PitchAnalyzer:
         normalized_audio_frame = audio_frame.astype(np.float32) / FLOAT32_RANGE # this may not be necessary lol
         pitch, confidence = self.pitch_yin(normalized_audio_frame)
         return pitch, confidence
+
 
     def get_buffer_pitch(self, audio_buffer: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
         """
@@ -92,48 +99,79 @@ class PitchAnalyzer:
 
         return np.array(pitch_values), np.array(pitch_confidences), np.array(pitch_times)
     
+    @staticmethod
+    def midi_to_freq(midi_pitch: int) -> float:
+        """Converts a MIDI pitch to frequency in Hz."""
+        return 440 * (2 ** ((midi_pitch - 69) / 12))
+    
+    @staticmethod
+    def freq_to_midi(freq: float) -> int:
+        """Converts a frequency in Hz to MIDI pitch."""
+        if freq == 0:
+            return None
+        return int(12*np.log(freq/220)/np.log(2) + 57)
+            
+
     def user_pitchdf(self, audio_data: AudioData):
         """Get all pitches from the audio data"""
 
+        # Apply equal-loudness filter for better pitch results
         equalized_audio_data = es.EqualLoudness()(audio_data.data)
+        # equalized_audio_data = audio_data.data
 
         frequencies = []
         confidences = []
 
-        print("Starting PitchYin...")
-        for frame in es.FrameGenerator(equalized_audio_data, frameSize=AppConfig.FRAME_SIZE, hopSize=128):
-            # FLOAT32_RANGE = 32768.0
-            # frame = frame.astype(np.float32) / FLOAT32_RANGE
-            freq, conf = self.pitch_yin(frame)
-            frequencies.append(freq)
-            confidences.append(conf)
+        MIN_VIOLIN_FREQ = 196
+        MAX_VIOLIN_FREQ = 5000
 
-        print("PitchYin complete.")
+        frequencies, confidences, amplitudes, _, pitch_times = pitch_yin(
+            equalized_audio_data, AppConfig.SAMPLE_RATE, 
+            2048*2, AppConfig.HOP_SIZE,
+            min_freq=MIN_VIOLIN_FREQ, max_freq=MAX_VIOLIN_FREQ, max_diff=0.3
+        )
+
+        # frequencies, voiced_flag, voiced_probs = librosa.pyin(
+        #     equalized_audio_data, fmin=MIN_VIOLIN_FREQ, fmax=MAX_VIOLIN_FREQ
+        # )
+        # confidences = [1.0] * len(frequencies)
+        # pitch_times = np.linspace(0.0, len(equalized_audio_data)/AppConfig.SAMPLE_RATE, len(frequencies))
+
+        # print("Starting PitchYin...")
+        # for frame in es.FrameGenerator(equalized_audio_data, frameSize=AppConfig.FRAME_SIZE, hopSize=128):
+        #     # FLOAT32_RANGE = 32768.0
+        #     # frame = frame.astype(np.float32) / FLOAT32_RANGE
+        #     freq, conf = self.pitch_yin(frame)
+        #     frequencies.append(freq)
+        #     confidences.append(conf)
+
+        # print("PitchYin complete.")
 
         # Pitch is estimated on frames. Compute frame time positions.
-        pitch_times = np.linspace(0.0, len(equalized_audio_data)/AppConfig.SAMPLE_RATE, len(frequencies))
+        # pitch_times = np.linspace(0.0, len(equalized_audio_data)/AppConfig.SAMPLE_RATE, len(frequencies))
 
         # Equation source: https://www.music.mcgill.ca/~gary/307/week1/node28.html
-        midi_pitches = [(12*np.log(freq/220)/np.log(2) + 57) for freq in frequencies]
+        midi_pitches = [(12*np.log(freq/220)/np.log(2) + 57) if freq!=0 else None for freq in frequencies]
 
         pitch_data = {
             'time': pitch_times,
             'frequency': frequencies,
+            # 'amplitude': amplitudes,
             'midi_pitch': midi_pitches,
             'confidence': confidences
         }
 
         pitch_df = pd.DataFrame(pitch_data)
-        # filter rows where confidence is 0 (recommended by essentia)
-        pitch_df = pitch_df[pitch_df['confidence'] > 0] 
+        pitch_df = pitch_df[pitch_df['frequency'] != 0] 
 
         return pitch_df
+    
     
     @staticmethod
     def note_segmentation(user_pitchdf: pd.DataFrame, window_size: int=11, threshold: float=0.75):
         """Detect different-enough new pitches based on a rolling median."""
 
-        print("Segmenting notes...")
+        print(f"Segmenting notes with window_size={window_size} and threshold={threshold}...")
         rolling_medians = user_pitchdf['midi_pitch'].rolling(window=window_size).median()
 
         # Detect new notes
@@ -179,7 +217,6 @@ class PitchAnalyzer:
                 # Update last onset
                 last_onset = user_pitchdf['time'].iloc[largest_diff[0]]
 
-
         # create a note_df
         note_data = {
             'time': onsets,
@@ -189,6 +226,7 @@ class PitchAnalyzer:
         note_df = pd.DataFrame(note_data)
         return note_df
     
+
     @staticmethod
     def group_harmonics(note_df: pd.DataFrame, harmonic_range=0.75):
         MIN_VIOLIN_FREQ = 196
@@ -237,15 +275,13 @@ class PitchAnalyzer:
 
         return harmonic_groups
                     
-            
-
     
     def detect_onsets(self, audio_data: AudioData):
         """Detects onsets in the audio data using Essentia's complex onset detection algorithm."""
         print("Detecting onsets...")
         # Compute both ODF frame by frame. Store results to a Pool.
         pool = essentia.Pool()
-        for frame in es.FrameGenerator(audio_data.data, frameSize=1024, hopSize=512):
+        for frame in es.FrameGenerator(audio_data.data, frameSize=1024*2, hopSize=512):
             magnitude, phase = self.c2p(self.fft(self.w(frame)))
             odf_value = self.od_complex(magnitude, phase)
             pool.add('odf.complex', odf_value)
@@ -254,48 +290,17 @@ class PitchAnalyzer:
         # Detect onset locations
         onsets = es.Onsets()
         onset_times = onsets(essentia.array([pool['odf.complex']]), [1])
-        print(f"Onset times: {onset_times}")
         print("Onset detection complete.")
         return onset_times
     
-    def detect_onsets2(self, audio_data: AudioData):
-        """Detects onsets in the audio data using Essentia's complex onset detection algorithm."""
-        print("Detecting onsets...")
-        # Compute both ODF frame by frame. Store results to a Pool.
-        pool = essentia.Pool()
-        for i, frame in enumerate(es.FrameGenerator(audio_data.data, frameSize=AppConfig.FRAME_SIZE, hopSize=AppConfig.HOP_SIZE)):
-            magnitude, phase = self.c2p(self.fft(self.w(frame)))
-            odf_value = self.od_complex(magnitude, phase)
-            pool.add('odf.complex', odf_value)
-            # print(f"Frame {i}: Time {frame_time:.4f}s, ODF Value {odf_value}")
+    # def onset_df(self, audio_data: AudioData, user_pitchdf: pd.DataFrame):
+    #     """Detects onsets in the audio data using Essentia's complex onset detection algorithm."""
+    #     print("Detecting onsets...")
+    #     # Compute both ODF frame by frame. Store results to a Pool.
+    #     onset_times = self.detect_onsets(audio_data)
 
-
-        # Detect onset locations
-        onsets = es.Onsets()
-        onset_times = onsets(essentia.array([pool['odf.complex']]), [1])
-
-
-        # Debugging: Print onset times and audio length
-        print(f"Onset times: {onset_times}")
-        audio_length = len(audio_data.data) / AppConfig.SAMPLE_RATE
-        print(f"Audio length: {audio_length} seconds")
-
-        print("Onset detection complete.")
         
-        # # Write to file to inspect
-        # silence_duration = len(audio_data.data) / AppConfig.SAMPLE_RATE
-        # silence = np.zeros(int(silence_duration * AppConfig.SAMPLE_RATE), dtype=np.float32)
-
-        # beeps = es.AudioOnsetsMarker(onsets=onset_times, type='beep')(silence)
-        # onset_audio = es.StereoMuxer()(audio_data.data, beeps)
-
-        # # Optional: Save the beeped audio to a file
-        # import soundfile as sf
-
-        # sf.write('user_fugue_onsets.wav', onset_audio, AppConfig.SAMPLE_RATE)
-        return onset_times
-
-
+    
     
     def get_pitch_melodia(self, audio_buffer: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
         """
@@ -313,6 +318,3 @@ class PitchAnalyzer:
         # Use the Melodia algorithm for pitch detection
         pitch_values, pitch_times = self.pitch_melodia(audio_buffer)
         return pitch_values, pitch_times
-    
-
-    

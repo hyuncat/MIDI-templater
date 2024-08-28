@@ -4,6 +4,7 @@ import os
 import essentia.standard as es
 from app.modules.midi.MidiData import MidiData
 from app.config import AppConfig
+import pretty_midi
 
 class AudioData:
     def __init__(self, MidiData: MidiData=None, audio_filepath: str=None):
@@ -37,12 +38,25 @@ class AudioData:
         @param:
             - audio_data (np.ndarray): audio data to load into the recording data array
         """
+        # app_directory = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
+        # audio_file_path = os.path.join(app_directory, 'resources', 'audio', audio_filepath)
         loader = es.MonoLoader(filename=audio_filepath, sampleRate=AppConfig.SAMPLE_RATE)
         audio_data = loader()
 
         # Set the loaded audio from file as the new self.audio_data and update capacity
         self.data = audio_data
         self.capacity = len(audio_data)
+
+    def load_midi_file(self, midi_filepath: str, soundfont_filepath: str):
+        """
+        Convert MIDI file to np.array of audio signals using the class 
+        FS_SAMPLE_RATE and SOUNDFONT variables.
+        """
+        midi_obj = pretty_midi.PrettyMIDI(midi_filepath)
+        midi_audio = midi_obj.fluidsynth(fs=AppConfig.SAMPLE_RATE, sf2_path=soundfont_filepath)
+
+        self.data = midi_audio
+        self.capacity = len(midi_audio)
 
     def write_data(self, buffer: np.ndarray, start_time: float=0):
         """
@@ -77,3 +91,11 @@ class AudioData:
 
         with self.lock:
             return self.data[start_index:end_index]
+
+    def get_length(self) -> int:
+        """
+        Get the length of the audio data in seconds
+        @return:
+            - length (float): length of the audio data in seconds
+        """
+        return len(self.data) / AppConfig.SAMPLE_RATE

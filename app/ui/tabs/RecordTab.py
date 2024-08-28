@@ -20,6 +20,9 @@ from app.modules.midi.MidiPlayer import MidiPlayer
 from app.ui.Slider import Slider
 from app.ui.plots.PitchPlot import PitchPlot
 
+# DTW
+from app.modules.dtw.PitchDTW import PitchDTW
+
 
 class RecordTab(QWidget):
     def __init__(self):
@@ -34,7 +37,7 @@ class RecordTab(QWidget):
         self.min_confidence = 0.0
 
         # Initialize the UI
-        self.MIDI_FILE = "fugue_aligned2.mid"
+        self.MIDI_FILE = "fugue.mid"
         self.SOUNDFONT_FILE = "MuseScore_General.sf3"
         self.USER_AUDIO_FILE = "user_fugue2.mp3"
         self.init_midi(self.MIDI_FILE, self.SOUNDFONT_FILE)
@@ -56,6 +59,10 @@ class RecordTab(QWidget):
         self._MidiPlayer = MidiPlayer(self._MidiSynth)
         self._MidiPlayer.load_midi(self._MidiData) # Load MIDI data into the player
 
+        # Also store the MIDI audio data for DTW
+        self.midi_audio = AudioData()
+        self.midi_audio.load_midi_file(midi_filepath, soundfont_filepath)
+
     def init_user_audio(self, user_audio_file: str) -> None:
         # Get audio file path
         app_directory = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
@@ -76,6 +83,14 @@ class RecordTab(QWidget):
         self._PitchAnalyzer = PitchAnalyzer()
         self.user_onsets = self._PitchAnalyzer.detect_onsets(self._AudioData)
         self.user_pitchdf = self._PitchAnalyzer.user_pitchdf(self._AudioData)
+
+        # Compute warping
+        self.midi_features = PitchDTW.midi_features(self._MidiData, self.midi_audio)
+        self.user_features = PitchDTW.user_features(self._AudioData)
+
+        self.alignment = PitchDTW.align(self.user_features, self.midi_features)
+        self.align_df = PitchDTW.align_df(self.alignment, self.user_features, self.midi_features)
+        self.align_df2 = PitchDTW.align_df2(self.alignment, self.user_features, self.midi_features)
         
     def init_ui(self):
         # Add recording slider
@@ -92,6 +107,7 @@ class RecordTab(QWidget):
         self._PitchPlot = PitchPlot()
         self._PitchPlot.plot_midi(self._MidiData)
         self._PitchPlot.plot_user(self.user_pitchdf, self.user_onsets, 0)
+        self._PitchPlot.plot_alignment(self.user_pitchdf, self.align_df, self.align_df2)
         self._layout.addWidget(self._PitchPlot)
 
         self._layout.addWidget(self._Slider)
@@ -111,12 +127,12 @@ class RecordTab(QWidget):
         # Window size for note detection
         self.window_size_label = QLabel("Window Size:")
         self.window_size_input = QLineEdit()
-        self.window_size_input.setText("11")
+        self.window_size_input.setText("15")
 
         # Threshold for note detection
         self.note_threshold_label = QLabel("Note Threshold:")
         self.note_threshold_input = QLineEdit()
-        self.note_threshold_input.setText("0.75")
+        self.note_threshold_input.setText("0.4")
 
         # Threshold for harmonic grouping
         self.harmonic_range_label = QLabel("Harmonic Range:")
@@ -148,16 +164,27 @@ class RecordTab(QWidget):
             note_threshold = float(self.note_threshold_input.text())
             harmonic_range = float(self.harmonic_range_input.text())
 
+            self.user_features.resegment_notes(window_size, note_threshold)
+            self.alignment = PitchDTW.align(self.user_features, self.midi_features)
+            self.align_df = PitchDTW.align_df(self.alignment, self.user_features, self.midi_features)
+            self.align_df2 = PitchDTW.align_df2(self.alignment, self.user_features, self.midi_features)
+
             # Re-plot user pitches with new note estimation, harmonic grouping, confidence parameters
             print("Updating pitch plot with new parameters...\n---")
-            self._PitchPlot.plot_user(self.user_pitchdf, self.user_onsets, min_confidence, 
-                                      window_size, note_threshold, harmonic_range)
+            self._PitchPlot.plot_user(
+                user_pitchdf=self.user_pitchdf, 
+                onsets=self.user_features.onset_times, 
+                min_confidence=min_confidence,
+                window_size=window_size, 
+                note_threshold=note_threshold, 
+                harmonic_range=harmonic_range
+            )
+            self._PitchPlot.plot_alignment(self.user_pitchdf, self.align_df, self.align_df2)
             print("Done!")
             
         except ValueError:
             # Print error and don't update plot
             print("Invalid input - failed to parse input as float or int.")
-
         
 
     def init_buttons(self):

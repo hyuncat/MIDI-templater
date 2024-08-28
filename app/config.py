@@ -1,3 +1,5 @@
+import qdarktheme
+
 class AppConfig:
     """
     Configuration File
@@ -13,8 +15,10 @@ class AppConfig:
     # Default to False, will be updated in initialize() based on the environment
     RUNNING_IN_JUPYTER: bool = False
 
+    DARK_THEME: bool = True
+
     @classmethod
-    def initialize(cls) -> None:
+    def initialize(cls, app) -> None:
         """
         Perform any necessary initializations here, e.g.:
         - Loading settings from a file
@@ -27,3 +31,6 @@ class AppConfig:
         except ImportError:
             # IPython is not installed, so we're not running in a Jupyter environment
             cls.RUNNING_IN_JUPYTER = False
+
+        if cls.DARK_THEME:
+            app.setStyleSheet(qdarktheme.load_stylesheet("dark"))

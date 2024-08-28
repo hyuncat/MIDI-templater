@@ -5,23 +5,31 @@ import pandas as pd
 import matplotlib.pyplot as plt
 from app.modules.midi.MidiData import MidiData
 from app.modules.pitch.PitchAnalyzer import PitchAnalyzer
+import os
+import json
 
 class PitchPlot(QWidget):
     def __init__(self):
         super().__init__()
 
         self.colors = {
-            'background': '#ECECEC',
+            'background': '#202124',
             'label_text': '#000000',  # Black color
             'MIDI_normal': '#000000',  # Black
             'MIDI_darker': '#377333',  # Green
             'user_note': '#B66CD3',  # Lavendar
             'timeline': '#FF0000',  # Red color
-            'staff_line': '#A9A9A9',  # Dark Gray for staff lines
+            'staff_line': '#C4C4C4',  # Light grey for staff lines
+            'treble_staff': '#A9A9A9',  # Dark grey for treble staff lines
             'onset': '#B1B1B1'  # Light blue for onsets
         }
 
-        self.staff_lines = {
+        app_directory = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
+        staff_lines_filepath = os.path.join(app_directory, 'resources', 'pitch_json.json')
+        with open(staff_lines_filepath, 'r') as file:
+            self.all_staff_lines = json.load(file)
+
+        self.treble_staff_lines = {
             'E4': 64,
             'G4': 67,
             'B4': 71,
@@ -30,7 +38,8 @@ class PitchPlot(QWidget):
         }
 
         self.init_ui()
-        self.x_range = 3  # Show 3 seconds of pitch data at once
+        self.x_range = 5  # Show x seconds of pitch data at once
+        self.y_range = 50  # Show y MIDI notes at once
         self.current_time = 0
         self.scatter = None
 
@@ -51,9 +60,20 @@ class PitchPlot(QWidget):
 
     def add_staff_lines(self):
         """Add staff lines to the plot to mimic the treble clef staff."""
-        for midi_number in self.staff_lines.values():
-            line = pg.InfiniteLine(pos=midi_number, angle=0, pen={'color': self.colors['staff_line'], 'width': 1})
+        for midi_number in self.all_staff_lines.values():
+            if midi_number in self.treble_staff_lines.values():
+                line_width = 2
+                line_color = self.colors['treble_staff']
+            else:
+                line_width = 1
+                line_color = self.colors['staff_line']
+            line = pg.InfiniteLine(pos=midi_number, angle=0, pen={'color': line_color, 'width': line_width})
             self.plot.addItem(line)
+
+        y_axis = self.plot.getAxis('left')
+        ticks = [(midi_number, note) for note, midi_number in self.all_staff_lines.items()]
+        y_axis.setTicks([ticks])
+        y_axis.setStyle(tickTextOffset=10, tickFont=pg.QtGui.QFont('Arial', 8))
 
     def plot_midi(self, MidiData: MidiData):
         """Plot the MIDI data on the pitch plot."""
@@ -96,8 +116,14 @@ class PitchPlot(QWidget):
         self.plot.setLabel('left', 'Pitch (MIDI #)', color=self.colors['label_text'])  # Y-axis label
 
         # Adjust plot margins
-        self.plot.setXRange(self.current_time - self.x_range / 2, self.current_time + self.x_range / 2)
-        self.plot.setYRange(60, 80)  # Adjust the Y range to ensure the staff lines are visible
+        Y_MID = 70
+
+        x_lower_bound = self.current_time -  (1/5)*(self.x_range)
+        x_upper_bound = self.current_time + (4/5)*(self.x_range)
+        y_lower_bound = Y_MID - self.y_range/2
+        y_upper_bound = Y_MID + self.y_range/2
+        self.plot.setXRange(x_lower_bound, x_upper_bound)  # Adjust the X range to show the current time
+        self.plot.setYRange(y_lower_bound, y_upper_bound)
 
 
     def plot_user(self, user_pitchdf: pd.DataFrame, onsets=None, min_confidence:float=0.0, 
@@ -118,11 +144,12 @@ class PitchPlot(QWidget):
             self.onset_lines = []
 
         if onsets is not None:
-            y_center = (user_pitchdf['midi_pitch'].min() + user_pitchdf['midi_pitch'].max()) / 2
+            self.onsets = onsets
+            # y_center = (user_pitchdf['midi_pitch'].min() + user_pitchdf['midi_pitch'].max()) / 2
             for onset in onsets:
                 line = pg.PlotCurveItem(
                     x=[onset, onset], # Small line segment around the onset time
-                    y=[self.staff_lines['G4'], self.staff_lines['D5']],
+                    y=[self.all_staff_lines['G4'], self.all_staff_lines['D5']],
                     pen=pg.mkPen(self.colors['onset'], width=4)
                 )
                 self.plot.addItem(line)
@@ -147,7 +174,7 @@ class PitchPlot(QWidget):
                 line = pg.PlotCurveItem(
                     x=times,
                     y=midi_pitches,
-                    pen=pg.mkPen(self.colors['onset'], width=15),
+                    pen=pg.mkPen(self.colors['onset'], width=0),
                     name='Harmonics'
                 )
                 self.plot.addItem(line)
@@ -184,8 +211,13 @@ class PitchPlot(QWidget):
 
         # --- PLOT USER PITCHES ---
         # Use the viridis colormap to map confidence values to colors
-        colormap = plt.get_cmap('viridis')
+        # amplitude_values = user_pitchdf['amplitude'].values
+        # normalized_amplitudes = (amplitude_values - np.min(amplitude_values)) / (np.max(amplitude_values) - np.min(amplitude_values))
+
+        colormap = plt.get_cmap('viridis_r')
         colors = [colormap(confidence) for confidence in user_pitchdf['confidence']]
+
+        # colors = [colormap(amplitude) for amplitude in normalized_amplitudes]
 
         # Convert colors to a format that pyqtgraph can use
         colors = [(int(r*255), int(g*255), int(b*255), int(a*255)) for r, g, b, a in colors]
@@ -207,12 +239,74 @@ class PitchPlot(QWidget):
         # Add the scatter plot to the plot widget
         self.plot.addItem(self.scatter)
 
+    def plot_alignment(self, user_pitchdf, align_df, align_df2):
+        """Plot the alignment between the user pitch data and the MIDI data."""
+        # self.plot_user(user_pitchdf)
+
+        if hasattr(self, 'alignment_lines'):
+            for line in self.alignment_lines:
+                self.plot.removeItem(line)
+        else:
+            self.alignment_lines = []
+
+        for midi_idx, row in align_df2.iterrows():
+            midi_time = row['midi_time']
+            midi_pitch = self._MidiData.pitch_df.iloc[midi_idx]['pitch']
+            for user_idx, user_time in enumerate(row['user_times']):
+                user_pitch = row['user_midi_pitches'][user_idx]
+                line = pg.PlotCurveItem(
+                    x=[midi_time, user_time],
+                    y=[midi_pitch, midi_pitch+5],
+                    pen=pg.mkPen('#B1B1B1', width=5),
+                    name='Alignment'
+                )
+                self.plot.addItem(line)
+                self.alignment_lines.append(line)
+
+        for midi_idx, row in align_df.iterrows():
+            midi_time = row['midi_time']
+            midi_pitch = self._MidiData.pitch_df.iloc[midi_idx]['pitch']
+            for user_idx, user_time in enumerate(row['user_times']):
+                user_pitch = row['user_midi_pitches'][user_idx]
+                line = pg.PlotCurveItem(
+                    x=[midi_time, user_time],
+                    y=[midi_pitch, midi_pitch+5],
+                    pen=pg.mkPen('#475798', width=5),
+                    name='Alignment'
+                )
+                self.plot.addItem(line)
+                self.alignment_lines.append(line)
+
+
+        # onset lines seem to not be showing up, let's replot
+        if hasattr(self, 'onset_lines'):
+            for line in self.onset_lines:
+                self.plot.removeItem(line)
+        else:
+            self.onset_lines = []
+
+        if hasattr(self, 'onsets'):
+            # y_center = (user_pitchdf['midi_pitch'].min() + user_pitchdf['midi_pitch'].max()) / 2
+            for onset in self.onsets:
+                line = pg.PlotCurveItem(
+                    x=[onset, onset], # Small line segment around the onset time
+                    y=[self.all_staff_lines['G4'], self.all_staff_lines['D5']],
+                    pen=pg.mkPen(self.colors['onset'], width=4)
+                )
+                self.plot.addItem(line)
+                self.onset_lines.append(line)
+
+
 
     def move_plot(self, current_time: float):
         """Move the plot to the current time."""
         self.current_time = current_time
         self.current_timeline.setPos(self.current_time)
-        self.plot.setXRange(self.current_time - self.x_range / 2, self.current_time + self.x_range / 2)
+
+        x_lower_bound = self.current_time -  (1/5)*(self.x_range)
+        x_upper_bound = self.current_time + (4/5)*(self.x_range)
+        self.plot.setXRange(x_lower_bound, x_upper_bound)  # Adjust the X range to show the current time
+        # self.plot.setYRange(y_lower_bound, y_upper_bound)
 
         # Update bar colors based on the current time
         for bar in self.bars:

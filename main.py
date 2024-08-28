@@ -12,7 +12,7 @@ def run() -> int:
         int: The exit status code.
     """
     app: QApplication = QApplication(sys.argv)
-    AppConfig.initialize()
+    AppConfig.initialize(app)
 
     window: MidiDTWApp = MidiDTWApp()
     window.show()

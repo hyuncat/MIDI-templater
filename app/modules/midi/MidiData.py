@@ -86,6 +86,9 @@ class MidiLoader:
 
         # Create DataFrame from the rows
         pitch_df = pd.DataFrame(rows, columns=['start', 'channel', 'pitch', 'velocity', 'duration'])
+        
+        # Create frequency col (https://www.music.mcgill.ca/~gary/307/week1/node28.html)
+        pitch_df['frequency'] = 440 * (2 ** ((pitch_df['pitch'] - 69) / 12))
         return pitch_df
 
 

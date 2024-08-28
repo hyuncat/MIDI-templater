@@ -8,6 +8,8 @@ from dtw import *
 from dataclasses import dataclass, field
 from typing import Optional
 
+from app.config import AppConfig
+
 
 @dataclass
 class CQTFeatures:
@@ -34,7 +36,7 @@ class MidiDTW:
     Class for preprocessing MIDI/audio files for dynamic time warping.
     """
 
-    FS_SAMPLE_RATE = 22050 
+    FS_SAMPLE_RATE = AppConfig.SAMPLE_RATE  
     SOUNDFONT = 'data/MuseScore_General.sf3'  # Default soundfont path
 
     MIN_VIOLIN_FREQ = 196
@@ -204,7 +206,7 @@ class MidiDTW:
 
         for row_index, note in pitch_df.iterrows():
             # Get the original onset_time of the MIDI note 
-            # and its index into aligned CQT array
+            # and its index into aligned midi CQT array
             onset_time = note.start
             onset_idx = np.argmin(np.abs(midi_cqt.aligned_times - onset_time))
             
