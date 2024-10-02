@@ -7,7 +7,7 @@ import librosa
 
 from app.config import AppConfig
 from app.modules.audio.AudioData import AudioData
-from app.modules.pitch.Yin import pitch_yin
+from archive.OldYin import pitch_yin
 
 class PitchAnalyzer:
     def __init__(self):
@@ -130,25 +130,6 @@ class PitchAnalyzer:
             2048*2, AppConfig.HOP_SIZE,
             min_freq=MIN_VIOLIN_FREQ, max_freq=MAX_VIOLIN_FREQ, max_diff=0.3
         )
-
-        # frequencies, voiced_flag, voiced_probs = librosa.pyin(
-        #     equalized_audio_data, fmin=MIN_VIOLIN_FREQ, fmax=MAX_VIOLIN_FREQ
-        # )
-        # confidences = [1.0] * len(frequencies)
-        # pitch_times = np.linspace(0.0, len(equalized_audio_data)/AppConfig.SAMPLE_RATE, len(frequencies))
-
-        # print("Starting PitchYin...")
-        # for frame in es.FrameGenerator(equalized_audio_data, frameSize=AppConfig.FRAME_SIZE, hopSize=128):
-        #     # FLOAT32_RANGE = 32768.0
-        #     # frame = frame.astype(np.float32) / FLOAT32_RANGE
-        #     freq, conf = self.pitch_yin(frame)
-        #     frequencies.append(freq)
-        #     confidences.append(conf)
-
-        # print("PitchYin complete.")
-
-        # Pitch is estimated on frames. Compute frame time positions.
-        # pitch_times = np.linspace(0.0, len(equalized_audio_data)/AppConfig.SAMPLE_RATE, len(frequencies))
 
         # Equation source: https://www.music.mcgill.ca/~gary/307/week1/node28.html
         midi_pitches = [(12*np.log(freq/220)/np.log(2) + 57) if freq!=0 else None for freq in frequencies]
@@ -298,9 +279,7 @@ class PitchAnalyzer:
     #     print("Detecting onsets...")
     #     # Compute both ODF frame by frame. Store results to a Pool.
     #     onset_times = self.detect_onsets(audio_data)
-
-        
-    
+ 
     
     def get_pitch_melodia(self, audio_buffer: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
         """

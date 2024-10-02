@@ -1,52 +1,63 @@
-from PyQt6.QtWidgets import QWidget, QVBoxLayout, QLabel, QPushButton, QHBoxLayout, QLineEdit
 import os
-from essentia.standard import MonoLoader
 from math import ceil
+from PyQt6.QtWidgets import QWidget, QVBoxLayout, QLabel, QPushButton, QHBoxLayout, QLineEdit
 
+# App config
 from app.config import AppConfig
-
-# Audio recording/playback modules
+# Audio modules
 from app.modules.audio.AudioData import AudioData
 from app.modules.audio.AudioRecorder import AudioRecorder
 from app.modules.audio.AudioPlayer import AudioPlayer
-from app.modules.pitch.PitchAnalyzer import PitchAnalyzer
-
-# MIDI handling / playback modules
+# MIDI modules
 from app.modules.midi.MidiData import MidiData
 from app.modules.midi.MidiSynth import MidiSynth
 from app.modules.midi.MidiPlayer import MidiPlayer
-
+# Algorithm modules
+from app.modules.dtw.PitchDTW import PitchDTW
+from archive.PitchAnalyzer import PitchAnalyzer
+from app.modules.pitch.pda.PYin import PYin
+from app.modules.pitch.Onsets import Onsets
 # UI
 from app.ui.Slider import Slider
 from app.ui.plots.PitchPlot import PitchPlot
 
-# DTW
-from app.modules.dtw.PitchDTW import PitchDTW
-
-
 class RecordTab(QWidget):
+    """Tab for handling initial audio recording/playback"""
     def __init__(self):
         super().__init__()
-        self._layout = QVBoxLayout(self)
+        self._layout = QVBoxLayout()
         self.setLayout(self._layout)
 
         # Recording/playback variables
         self.is_recording = False
         self.is_midi_playing = False
         self.is_user_playing = False
-        self.min_confidence = 0.0
 
-        # Initialize the UI
-        self.MIDI_FILE = "fugue.mid"
-        self.SOUNDFONT_FILE = "MuseScore_General.sf3"
-        self.USER_AUDIO_FILE = "user_fugue2.mp3"
+        # Initialize the MIDI/user audio data
+        # (Can be omitted later to allow custom MIDI uploads and
+        # user audio recording within the app itself)
+        # ---
+        self.MIDI_FILE = "fugue.mid" # resources/midi/...
+        self.SOUNDFONT_FILE = "MuseScore_General.sf3" # resources/...
+        self.USER_AUDIO_FILE = "user_fugue2.mp3" # resources/audio/...
+
         self.init_midi(self.MIDI_FILE, self.SOUNDFONT_FILE)
-        self.init_user_audio(self.USER_AUDIO_FILE)
-        self.init_ui()
-
+        # self.init_user_audio(self.USER_AUDIO_FILE)
+        self.init_pitch_plot()
+        self.init_slider()
+        self.init_playback_buttons()
     
-    def init_midi(self, midi_file: str, soundfont_file: str) -> None:
-        """Initialize the MIDI data, synth, and player for use in the app."""
+    def init_midi(self, midi_file: str, soundfont_file: str):
+        """
+        Initializes MIDI data, synth, and player for use in the app.
+        Expects the file name as input and parses filepath as the app/resources 
+        folder automatically.
+
+        Args:
+            midi_file (str): MIDI file to load
+            soundfont_file (str): Soundfont file to load
+        """
+        print(f"Starting app with MIDI file {midi_file}...")
 
         # Get MIDI/soundfont file paths
         app_directory = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
@@ -59,135 +70,53 @@ class RecordTab(QWidget):
         self._MidiPlayer = MidiPlayer(self._MidiSynth)
         self._MidiPlayer.load_midi(self._MidiData) # Load MIDI data into the player
 
-        # Also store the MIDI audio data for DTW
-        self.midi_audio = AudioData()
-        self.midi_audio.load_midi_file(midi_filepath, soundfont_filepath)
-
     def init_user_audio(self, user_audio_file: str) -> None:
+        """
+        Preload the app with an audio recording to perform analysis.
+        """
         # Get audio file path
         app_directory = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
         audio_filepath = os.path.join(app_directory, 'resources', 'audio', user_audio_file)
 
         # Initialize audio data, recorder, and player
         # self._AudioRecorder = AudioRecorder()
-        print(f"Starting app with {audio_filepath}...")
         
         self._AudioData = AudioData()
         self._AudioData.load_data(audio_filepath)
 
         self._AudioPlayer = AudioPlayer()
         self._AudioPlayer.load_audio_data(self._AudioData)
+        print(f"Preloaded user audio: {user_audio_file}")
 
-        # Load the audio file as mono
-        # self.user_pitches, self.user_pitch_confidences, self.pitch_times = PitchAnalyzer().get_buffer_pitch(self._AudioData)
-        self._PitchAnalyzer = PitchAnalyzer()
-        self.user_onsets = self._PitchAnalyzer.detect_onsets(self._AudioData)
-        self.user_pitchdf = self._PitchAnalyzer.user_pitchdf(self._AudioData)
+        self.pitches, self.best_prob_pitches = PYin.pyin(self._AudioData.data, mean_threshold=0.3)
+        self.os = Onsets()
+        self.onsets = self.os.detect_onsets(self._AudioData)
+        self.note_df = self.os.pitch_onsets(self.best_prob_pitches, window_size=30, threshold=0.6)
+    
+    def init_pitch_plot(self):
+        self._PitchPlot = PitchPlot()
+        self._PitchPlot.plot_midi(self._MidiData)
 
-        # Compute warping
-        self.midi_features = PitchDTW.midi_features(self._MidiData, self.midi_audio)
-        self.user_features = PitchDTW.user_features(self._AudioData)
+        # Plot these if user preloads in data
+        # self._PitchPlot.plot_onsets(self.onsets)
+        # self._PitchPlot.plot_notes(self.note_df)
+        # self._PitchPlot.plot_pitches(self.best_prob_pitches)
+        self._layout.addWidget(self._PitchPlot)
 
-        self.alignment = PitchDTW.align(self.user_features, self.midi_features)
-        self.align_df = PitchDTW.align_df(self.alignment, self.user_features, self.midi_features)
-        self.align_df2 = PitchDTW.align_df2(self.alignment, self.user_features, self.midi_features)
-        
-    def init_ui(self):
-        # Add recording slider
+    def init_slider(self):
         self._Slider = Slider(self._MidiData) # Init slider with current MIDI data
         self._Slider.slider_changed.connect(self.handle_slider_change)
 
         # Update the slider max value if the audio file is longer than the MIDI file
-        audio_length = ceil(self._AudioData.capacity / AppConfig.SAMPLE_RATE)
-        if audio_length > self._MidiData.get_length():
-            slider_ticks = audio_length * self._Slider.TICKS_PER_SEC
-            self._Slider.update_slider_max(slider_ticks)
-
-        # Add pitch plot
-        self._PitchPlot = PitchPlot()
-        self._PitchPlot.plot_midi(self._MidiData)
-        self._PitchPlot.plot_user(self.user_pitchdf, self.user_onsets, 0)
-        self._PitchPlot.plot_alignment(self.user_pitchdf, self.align_df, self.align_df2)
-        self._layout.addWidget(self._PitchPlot)
-
+        if hasattr(self, "_AudioData"):
+            audio_length = ceil(self._AudioData.get_length())
+            if audio_length > self._MidiData.get_length():
+                slider_ticks = audio_length * self._Slider.TICKS_PER_SEC
+                self._Slider.update_slider_max(slider_ticks)
+        
         self._layout.addWidget(self._Slider)
-        self.init_buttons()
-        self.init_confidence_input()
-
-
-    def init_confidence_input(self):
-        """Initialize the confidence threshold input"""
-        self.plotControlLayout = QHBoxLayout()
-
-        # Min confidence for displaying pitches
-        self.confidence_label = QLabel("Min Confidence:")
-        self.confidence_input = QLineEdit()
-        self.confidence_input.setText(str(self.min_confidence))
-
-        # Window size for note detection
-        self.window_size_label = QLabel("Window Size:")
-        self.window_size_input = QLineEdit()
-        self.window_size_input.setText("15")
-
-        # Threshold for note detection
-        self.note_threshold_label = QLabel("Note Threshold:")
-        self.note_threshold_input = QLineEdit()
-        self.note_threshold_input.setText("0.4")
-
-        # Threshold for harmonic grouping
-        self.harmonic_range_label = QLabel("Harmonic Range:")
-        self.harmonic_range_input = QLineEdit()
-        self.harmonic_range_input.setText("0.75")
-        
-        # Create a submit button
-        self.submit_button = QPushButton("Submit")
-        self.submit_button.clicked.connect(self.update_pitch_plot)
-        
-        # Add the widgets to the layout
-        self.plotControlLayout.addWidget(self.confidence_label)
-        self.plotControlLayout.addWidget(self.confidence_input)
-        self.plotControlLayout.addWidget(self.window_size_label)
-        self.plotControlLayout.addWidget(self.window_size_input)
-        self.plotControlLayout.addWidget(self.note_threshold_label)
-        self.plotControlLayout.addWidget(self.note_threshold_input)
-        self.plotControlLayout.addWidget(self.harmonic_range_label)
-        self.plotControlLayout.addWidget(self.harmonic_range_input)
-        self.plotControlLayout.addWidget(self.submit_button)
-
-        self._layout.addLayout(self.plotControlLayout)
-
-    def update_pitch_plot(self):
-        """Update the confidence threshold and re-plot user pitches"""
-        try:
-            min_confidence = float(self.confidence_input.text())
-            window_size = int(self.window_size_input.text())
-            note_threshold = float(self.note_threshold_input.text())
-            harmonic_range = float(self.harmonic_range_input.text())
-
-            self.user_features.resegment_notes(window_size, note_threshold)
-            self.alignment = PitchDTW.align(self.user_features, self.midi_features)
-            self.align_df = PitchDTW.align_df(self.alignment, self.user_features, self.midi_features)
-            self.align_df2 = PitchDTW.align_df2(self.alignment, self.user_features, self.midi_features)
-
-            # Re-plot user pitches with new note estimation, harmonic grouping, confidence parameters
-            print("Updating pitch plot with new parameters...\n---")
-            self._PitchPlot.plot_user(
-                user_pitchdf=self.user_pitchdf, 
-                onsets=self.user_features.onset_times, 
-                min_confidence=min_confidence,
-                window_size=window_size, 
-                note_threshold=note_threshold, 
-                harmonic_range=harmonic_range
-            )
-            self._PitchPlot.plot_alignment(self.user_pitchdf, self.align_df, self.align_df2)
-            print("Done!")
-            
-        except ValueError:
-            # Print error and don't update plot
-            print("Invalid input - failed to parse input as float or int.")
-        
-
-    def init_buttons(self):
+    
+    def init_playback_buttons(self):
         """Init playback/record buttons"""
         # Create a horizontal layout for the playback and recording buttons
         self.buttonLayout = QHBoxLayout()
@@ -206,8 +135,12 @@ class RecordTab(QWidget):
         self.user_play_button.clicked.connect(self.toggle_user_playback)
         self.buttonLayout.addWidget(self.user_play_button)
 
-        self._layout.addLayout(self.buttonLayout)
+        # DTW button
+        self.dtw_button = QPushButton('Align to MIDI')
+        self.dtw_button.clicked.connect(self.dtw_align)
+        self.buttonLayout.addWidget(self.dtw_button)
 
+        self._layout.addLayout(self.buttonLayout)
 
     def toggle_midi(self):
         """Toggle the MIDI playback on and off."""
@@ -222,11 +155,13 @@ class RecordTab(QWidget):
             self.is_midi_playing = True
             self.midi_play_button.setText('Pause MIDI')
             start_time = self._Slider.get_current_time()
-            # Check if MidiPlayer exists
-            print("does MidiPlayer exist?", self._MidiPlayer)
             self._MidiPlayer.play(start_time=start_time)
 
     def toggle_user_playback(self):
+        """Toggle user's recorded audio playback on/off"""
+        if not hasattr(self, "_AudioPlayer"):
+            return
+        
         if self.is_user_playing:
             self._Slider.stop_timer()
             self.user_play_button.setText('Play Recorded Audio')
@@ -239,25 +174,29 @@ class RecordTab(QWidget):
             self._AudioPlayer.play(start_time=start_time)
             self.is_user_playing = True
 
-
     def handle_slider_change(self, value):
         """Handle the slider change event, e.g., seeking in a MIDI playback"""
+        #TODO: Handle seeking during audio/midi playback
         current_time = self._Slider.get_current_time() 
         self._PitchPlot.move_plot(current_time)
 
-        if value == self._Slider.slider.maximum():
+        if value < self._Slider.slider.minimum():
+            self._Slider.slider.setValue(self._Slider.slider.minimum())
+
+        if value >= self._Slider.slider.maximum():
             self._Slider.stop_timer()
             # Pause MIDI playback if it's currently playing
             self.is_midi_playing = False
             self.midi_play_button.setText('Play MIDI')
-            self._MidiPlayer.pause()
+            
+            if hasattr(self, "_MidiPlayer"):
+                self._MidiPlayer.pause()
 
             # Pause user audio playback if it's currently playing
             self.is_user_playing = False
             self.user_play_button.setText('Play Recorded Audio')
-            self._AudioPlayer.pause()
+            if hasattr(self, "_AudioPlayer"):
+                self._AudioPlayer.pause()
 
-        # print(f"Slider value changed to: {value}")
-
-    def status_message(self):
-        return "Recording audio..."
+    def dtw_align(self):
+        print("Align notes! (Implemented later)")

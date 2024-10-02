@@ -6,6 +6,8 @@ import librosa
 import scipy.signal as signal
 from dataclasses import dataclass
 from typing import Optional
+from .conversions import midi_to_freq, freq_to_midi, freq_to_pitchbin
+from .Transition import TransitionMatrix
 
 @dataclass
 class Pitch:
@@ -37,6 +39,7 @@ class PYin:
         audio_data = signal.sosfilt(sos, audio_data)
         return audio_data
 
+    
     def autocorrelation_fft(audio_frame: np.ndarray, tau_max: int) -> tuple[np.ndarray, np.ndarray]:
         """
         Fast autocorrelation function implementation using Wiener-Khinchin theorem,
@@ -71,7 +74,7 @@ class PYin:
         # (type II autocorrelation)
         return autocorrelation[:w-tau_max], power_spectrum
 
-
+    
     def square_difference_fct(audio_frame: np.ndarray, tau_max: int):
         """
         The square difference function implemented in the seminal YIN paper.
@@ -97,7 +100,6 @@ class PYin:
         # Compute the square difference function
         sdf = m_primes - 2*autocorr
         return sdf, power_spec
-
 
     def cmndf(audio_frame: np.ndarray, tau_max: int) -> tuple[np.ndarray, np.ndarray]:
         """
@@ -126,7 +128,7 @@ class PYin:
 
 
     @njit
-    def parabolic_interpolation_numba(cmndf_frame: np.ndarray, trough_index: int) -> tuple[float, float]:
+    def parabolic_interpolation(cmndf_frame: np.ndarray, trough_index: int) -> tuple[float, float]:
         """
         Perform parabolic interpolation around a minimum point using Numba for optimization.
         
@@ -153,53 +155,61 @@ class PYin:
         y_interpolated = beta - (alpha - gamma) * (alpha - gamma) / (4 * denominator)
 
         return x_interpolated, y_interpolated
-
-
+  
+    # Question: How is voicing determined within this function? 
+    #   -> global_min? n_thresholds_below_min?
     @njit
-    def compute_trough_probabilities(trough_prior, trough_thresholds, beta_probs, no_trough_prob):
+    def _pthreshold(trough_prior: np.ndarray, trough_threshold_matrix: np.ndarray, beta_pdf, no_trough_prob: float=0.01):
         """
         Compute the probabilities of each trough using the prior distribution
         and beta distribution of thresholds, optimized with Numba.
-        """
-        probs = trough_prior.dot(beta_probs)
-        global_min = np.argmin(probs)
-        n_thresholds_below_min = np.count_nonzero(~trough_thresholds[global_min, :])
-        probs[global_min] += no_trough_prob * np.sum(beta_probs[:n_thresholds_below_min])
-        return probs
 
+        Args:
+            trough_prior: The prior distribution of troughs.
+            trough_threshold_matrix: A boolean matrix indicating threshold presence.
+            beta_pdf: The probability density function of the beta distribution.
+            no_trough_prob: The probability of no troughs being present.
 
-    def pitch_probabilities(cmndf_frame: np.ndarray, thresholds, beta_probs) -> tuple[list[float], list[float]]:
+        Returns:
+            A 1D array of probabilities for each trough.
         """
-        Get all possible pitch candidates
+        trough_probs = trough_prior.dot(beta_pdf)
+        global_min = np.argmin(trough_probs)
+        n_thresholds_below_min = np.count_nonzero(~trough_threshold_matrix[global_min, :])
+        trough_probs[global_min] += no_trough_prob * np.sum(beta_pdf[:n_thresholds_below_min])
+        return trough_probs
+
+    def probabilistic_thresholding(cmndf_frame: np.ndarray, thresholds, beta_pdf) -> tuple[list[float], list[float]]:
+        """
+        Get all possible pitch candidates + probabilities for a given audio frame's CMNDF.
+        Corresponds to the probabilistic thresholding step in the PYIN algorithm.
+        
+        Args:
+            cmndf_frame: The CMNDF function for a single audio frame.
+            thresholds: The thresholds to use for probabilistic thresholding.
+            beta_pdf: The probability density function of the beta distribution.
+        
+        Returns:
+            A tuple with lists of pitch candidates and their respective probabilities.
         """
         base_trough_indices = scipy.signal.argrelmin(cmndf_frame, order=1)[0]
-        # troughs = [parabolic_interpolation(cmndf_frame, x) for x in base_trough_indices]
-        # troughs = [Trough(*parabolic_interpolation_numba(cmndf_frame, x)) for x in base_trough_indices]
-
-        troughs = [PYin.parabolic_interpolation_numba(cmndf_frame, i) for i in base_trough_indices]
+        troughs = [PYin.parabolic_interpolation(cmndf_frame, i) for i in base_trough_indices]
 
         trough_x_vals = np.array([trough[0] for trough in troughs])
         trough_y_vals = np.array([trough[1] for trough in troughs])
 
-        trough_thresholds = np.less.outer(trough_y_vals, thresholds)
-        trough_ranks = np.cumsum(trough_thresholds, axis=0) - 1
-        n_troughs = np.count_nonzero(trough_thresholds, axis=0)
+        trough_threshold_matrix = np.less.outer(trough_y_vals, thresholds)
+        trough_ranks = np.cumsum(trough_threshold_matrix, axis=0) - 1 # count how many troughs are below threshold
+        n_troughs = np.count_nonzero(trough_threshold_matrix, axis=0)
 
         BOLTZMANN_PARAM = 2.0
         trough_prior = scipy.stats.boltzmann.pmf(trough_ranks, BOLTZMANN_PARAM, n_troughs)
-        trough_prior[~trough_thresholds] = 0
+        trough_prior[~trough_threshold_matrix] = 0
 
-        probs = PYin.compute_trough_probabilities(trough_prior, trough_thresholds, beta_probs, no_trough_prob=0.01)
+        trough_probabilities = PYin._pthreshold(trough_prior, trough_threshold_matrix, beta_pdf, no_trough_prob=0.01)
 
         SAMPLE_RATE = 44100
-
-        trough_frequencies = []
-        trough_probabilities = []
-        for i, trough in enumerate(trough_y_vals):
-            trough_freq = SAMPLE_RATE / trough_x_vals[i]
-            trough_frequencies.append(trough_freq)
-            trough_prob = probs[i]
-            trough_probabilities.append(trough_prob)
+        trough_frequencies = SAMPLE_RATE / trough_x_vals
 
         return trough_frequencies, trough_probabilities
 
@@ -211,6 +221,8 @@ class PYin:
         beta = total - alpha
         return alpha, beta
 
+
+    @staticmethod
     def pyin(audio_data: np.ndarray, mean_threshold: float = 0.3):
         """
         The Probabilistic YIN algorithm for pitch estimation.
@@ -225,16 +237,19 @@ class PYin:
         audio_data = PYin.high_pass_irr_filter(audio_data, sr)
 
         N_THRESHOLDS = 100
-        thresholds = np.linspace(0, 1, N_THRESHOLDS)
-        beta_thresholds = np.linspace(0, 1, N_THRESHOLDS + 1)
+        thresholds = np.linspace(0, 1, N_THRESHOLDS) 
+        cdf_thresholds = np.linspace(0, 1, N_THRESHOLDS + 1) # add one because we create using np.diff of a cdf
 
         # Create beta distribution centered around the desired mean threshold
-        alpha, beta = PYin.calculate_alpha_beta(mean_threshold)
-        beta_cdf = scipy.stats.beta.cdf(beta_thresholds, alpha, beta) # Why 2, 18?
-        beta_probs = np.diff(beta_cdf)
-        
+        MEAN_THRESHOLD = 0.3
+        alpha, beta = PYin.calculate_alpha_beta(MEAN_THRESHOLD, total=20)
+        # print(f"Mean {MEAN_THRESHOLD} has alpha: {alpha}, beta: {beta}")
+        beta_cdf = scipy.stats.beta.cdf(x=cdf_thresholds, a=alpha, b=beta) # How are alpha and beta calculated?
+        beta_pdf = np.diff(beta_cdf) # where we know the total mass = 1
+
         pitches = []
         most_likely_pitches = []
+        voiced_probs = []
         num_frames = (len(audio_data) - frame_size) // hop_size
         for frame_idx in range(num_frames):
             # Print the frame count in place
@@ -247,22 +262,34 @@ class PYin:
             cmndf_frame, _ = PYin.cmndf(audio_frame, frame_size // 2)
             
             # Compute all possible pitch candidates for the frame
-            trough_freqs, trough_probs = PYin.pitch_probabilities(cmndf_frame, thresholds, beta_probs)
+            frequencies, probabilities = PYin.probabilistic_thresholding(cmndf_frame, thresholds, beta_pdf)
 
-            max_prob = 0
+            # max_prob = 0
             most_likely_pitch = None
 
-            for trough_freq, trough_prob in zip(trough_freqs, trough_probs):
-                pitch = Pitch(time=time, frequency=trough_freq, probability=trough_prob)
+            for freq, prob in zip(frequencies, probabilities):
+                pitch_bin = freq_to_pitchbin(freq, bins_per_semitone=10, tuning=440, fmin=196, fmax=5000)
+                pitch = Pitch(time=time, frequency=freq, probability=prob, pitch_bin=pitch_bin)
                 pitches.append(pitch)
-                if trough_prob > max_prob:
-                    max_prob = trough_prob
-                    most_likely_pitch = pitch
+
+            # Get the voiced probability for each frame as the sum of all pitch probabilities
+            voiced_prob = np.clip(np.sum(probabilities), 0, 1)
+            assert 0 <= voiced_prob <= 1
+            voiced_probs.append(voiced_prob)
+
+            # Create the emission matrix with 
+
+            # Append the most likely pitch candidate for the frame to a separate list
+            i = np.argmax(probabilities)
+            best_prob = probabilities[i]
+            best_freq = frequencies[i]
+            best_pitch_bin = freq_to_pitchbin(best_freq, bins_per_semitone=10, tuning=440, fmin=196, fmax=5000)
+            most_likely_pitch = Pitch(time=time, frequency=best_freq, probability=best_prob, pitch_bin=best_pitch_bin)
 
             most_likely_pitches.append(most_likely_pitch)
             
         print("\nDone!")
-        return pitches, most_likely_pitches
+        return pitches, most_likely_pitches, voiced_probs
 
 
 # def snac_fct(audio_frame: np.ndarray, tau_max: int) -> tuple[np.ndarray, np.ndarray]:

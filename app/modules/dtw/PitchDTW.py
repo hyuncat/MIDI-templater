@@ -11,7 +11,7 @@ from app.modules.audio.AudioData import AudioData
 from app.modules.midi.MidiData import MidiData
 from typing import Optional, List
 from app.config import AppConfig
-from app.modules.pitch.PitchAnalyzer import PitchAnalyzer
+from archive.PitchAnalyzer import PitchAnalyzer
 
 
 @dataclass

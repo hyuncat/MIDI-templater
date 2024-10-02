@@ -7,7 +7,7 @@ from PyQt6.QtCore import pyqtSignal
 import threading
 from app.config import AppConfig
 from app.modules.audio.AudioData import AudioData
-from app.modules.pitch.PitchAnalyzer import PitchAnalyzer
+from app.modules.pitch.pda.PYin import PYin
 
 class AudioRecorder:
     """
@@ -47,7 +47,7 @@ class AudioRecorder:
         self.recording_thread = None
         self.thread_stop_event = threading.Event()
 
-        # Initialize tbe InputStream object
+        # Initialize the InputStream object
         self.stream = sd.InputStream(
             samplerate=AppConfig.SAMPLE_RATE,
             channels=AppConfig.CHANNELS,
@@ -55,7 +55,8 @@ class AudioRecorder:
             blocksize=AppConfig.FRAME_SIZE # Number of samples / frame
         )
         # Initialize a PitchAnalyzer object for pitch detection
-        self.pitch_analyzer = PitchAnalyzer()
+        # self.pitch_analyzer = PitchAnalyzer()
+        self.audio_data = AudioData()
 
     def _callback(self, indata: np.ndarray, outdata: np.ndarray, frames: int, 
                   time, status: CallbackFlags) -> None:
@@ -72,6 +73,7 @@ class AudioRecorder:
         # Analyze the pitch of the audio frame (indata) and emit the results
         pitch, confidence = self.pitch_analyzer.get_frame_pitch(indata)
         self.pitch_added.emit(pitch, confidence)
+        self.audio_data.write_data(indata, self.current_start_time)
 
     def start(self, start_time: float=0):
         """

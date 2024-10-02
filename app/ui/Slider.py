@@ -46,7 +46,8 @@ class Slider(QWidget):
         """Initialize the UI for the Slider widget."""
         self.slider = QSlider(Qt.Orientation.Horizontal)
 
-        midi_length_ticks = int(self._MidiData.get_length() * self.TICKS_PER_SEC)
+        # Initialize the slider with a little more leeway than MIDI length
+        midi_length_ticks = int((self._MidiData.get_length()+0.5) * self.TICKS_PER_SEC)
         self.slider.setRange(0, midi_length_ticks)
 
         # Emit signal when the slider value changes

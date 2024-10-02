@@ -4,8 +4,8 @@ from PyQt6.QtWidgets import QMainWindow, QWidget, QHBoxLayout, QTabWidget
 import qdarktheme
 
 from app.config import AppConfig
+# from archive.RecordTab import RecordTab
 from app.ui.tabs.RecordTab import RecordTab
-from app.ui.tabs.RecordTab2 import RecordTab2
 from app.ui.tabs.AnalyzeTab import AnalyzeTab
 
 from app.ui.widgets.MenuBar import MenuBar
@@ -29,7 +29,7 @@ class MidiDTWApp(QMainWindow):
         self.layout.addWidget(self.tabs, stretch=1)  # Ensure it expands to fill space
 
         # Initialize design and visualize tabs
-        self.record_tab = RecordTab2()
+        self.record_tab = RecordTab()
         self.tabs.addTab(self.record_tab, "Record")
 
         self.analyze_tab = AnalyzeTab()
