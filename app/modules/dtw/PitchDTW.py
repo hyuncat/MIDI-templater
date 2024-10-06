@@ -12,6 +12,7 @@ from app.modules.midi.MidiData import MidiData
 from typing import Optional, List
 from app.config import AppConfig
 from archive.PitchAnalyzer import PitchAnalyzer
+from app.modules.pitch.pda.PYin import PYin
 
 
 @dataclass
@@ -257,6 +258,7 @@ class PitchDTW:
 
     @staticmethod
     def align_df2(alignment, user_features: UserFeatures, midi_features: MidiFeatures):
+        """this is what we use. not the first one lol"""
         aligned_user = user_features.onset_df.iloc[alignment.index2].reset_index(drop=True)
         aligned_midi = midi_features.onset_df.iloc[alignment.index1].reset_index(drop=True)
 
@@ -320,57 +322,58 @@ class PitchDTW:
         VIOLIN_PROGRAM = 41
         violin_instrument = pretty_midi.Instrument(program=VIOLIN_PROGRAM, is_drum=False, name='Violin')
 
+        align_df['user_times'] = align_df['user_times'].apply(lambda x: x[0])
         for row_index, note in midi_data.pitch_df.iterrows():
             onset_time = note.start
             # onset_idx = (np.abs(aligned_user['time'] - onset_time)).idxmin()
 
             # find the best onset index
-            align_df_index = (np.abs(align_df['midi_time'] - onset_time)).idxmin()
+            align_df_index = (np.abs(align_df['user_times'] - onset_time)).argmin()
+
             align_df_row = align_df.iloc[align_df_index]
             
-            best_user_time = align_df_row['user_times'][0]
+            # find the best user time to match to the midi time
+            warped_onset_time = align_df_row['user_times']
+            print(f"best onset time: {warped_onset_time}")
 
-            for user_midi_pitch, user_time in zip(align_df_row['user_midi_pitches'], align_df_row['user_times']):
-                if abs(note.pitch - user_midi_pitch) < 1:
-                    best_user_time = user_time
-                    break
-
-            onset_idx = (np.abs(aligned_user['time'] - best_user_time)).idxmin()
+            # for user_midi_pitch, user_time in zip(align_df_row['user_midi_pitches'], align_df_row['user_times']):
+            #     if abs(note.pitch - user_midi_pitch) < 1:
+            #         warped_onset_time = user_time
+            #         break
 
             # Get the next onset_time of the MIDI note
             # and its index into aligned CQT array
+            next_warped_onset_time = -1
             LAST_PITCHDF_ROW_INDEX = midi_data.pitch_df.shape[0] - 1 
             if row_index == LAST_PITCHDF_ROW_INDEX:
-                next_onset_time = aligned_user.iloc[-1].time + .1
+                next_warped_onset_time = aligned_user.iloc[-1].time + .1
+                next_onset_time = next_warped_onset_time
             else:
-                next_onset_time = midi_data.pitch_df.iloc[row_index + 1].start
+                next_align_df_row = align_df.iloc[align_df_index+1]
+                next_onset_time = next_align_df_row['midi_time']
 
-            next_onset_idx = np.argmin(np.abs(aligned_user['time'] - next_onset_time))
-
-            # Get the aligned onset times for the MIDI note
-            # by finding the corresponding time in the user_cqt
-            warped_onset_time = aligned_midi.iloc[onset_idx].time
-            warped_next_onset_time = aligned_midi.iloc[next_onset_idx].time
+                # find the best user time to match to the midi time
+                next_warped_onset_time = next_align_df_row['user_times']
 
             # Compute warped note duration using the ratio of the aligned / original 
             # 'internote' durations between two onset times, then use to scale the 
             # original note duration.
 
             original_internote_duration = next_onset_time - onset_time
-            aligned_internote_duration = warped_next_onset_time - warped_onset_time
-            warp_ratio = aligned_internote_duration / original_internote_duration
+            aligned_internote_duration = next_warped_onset_time - warped_onset_time
+            if original_internote_duration == 0:
+                warp_ratio = 0
+            else:
+                warp_ratio = aligned_internote_duration / original_internote_duration
 
             original_note_duration = note.duration
             warped_note_duration = original_note_duration * warp_ratio
-
-            # # Ensure warped_onset_time and warped_note_duration are finite numbers
-            # if not np.isfinite(warped_onset_time) or not np.isfinite(warped_note_duration):
-            #     continue
 
             # Use the previous pitch and velocity values
             pitch = int(note.pitch)
             velocity = int(note.velocity)
 
+            print(f"adding new note at {warped_onset_time}")
             new_note = pretty_midi.Note(velocity=velocity, pitch=pitch, start=warped_onset_time, end=warped_onset_time+original_note_duration)
             violin_instrument.notes.append(new_note)
 

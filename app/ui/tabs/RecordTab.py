@@ -42,7 +42,7 @@ class RecordTab(QWidget):
         self.USER_AUDIO_FILE = "user_fugue2.mp3" # resources/audio/...
 
         self.init_midi(self.MIDI_FILE, self.SOUNDFONT_FILE)
-        # self.init_user_audio(self.USER_AUDIO_FILE)
+        self.init_user_audio(self.USER_AUDIO_FILE)
         self.init_pitch_plot()
         self.init_slider()
         self.init_playback_buttons()
@@ -90,17 +90,18 @@ class RecordTab(QWidget):
 
         self.pitches, self.best_prob_pitches = PYin.pyin(self._AudioData.data, mean_threshold=0.3)
         self.os = Onsets()
-        self.onsets = self.os.detect_onsets(self._AudioData)
-        self.note_df = self.os.pitch_onsets(self.best_prob_pitches, window_size=30, threshold=0.6)
+        self.onset_times = self.os.detect_onsets(self._AudioData)
+        self.note_df = self.os.detect_pitch_changes(self.best_prob_pitches, window_size=30, threshold=0.6)
+        self.onset_df = self.os.combine_onsets(self.onset_times, self.note_df, combine_threshold=0.05)
     
     def init_pitch_plot(self):
         self._PitchPlot = PitchPlot()
         self._PitchPlot.plot_midi(self._MidiData)
 
         # Plot these if user preloads in data
-        # self._PitchPlot.plot_onsets(self.onsets)
-        # self._PitchPlot.plot_notes(self.note_df)
-        # self._PitchPlot.plot_pitches(self.best_prob_pitches)
+        self._PitchPlot.plot_onsets(self.onset_df)
+        self._PitchPlot.plot_notes(self.note_df)
+        self._PitchPlot.plot_pitches(self.best_prob_pitches)
         self._layout.addWidget(self._PitchPlot)
 
     def init_slider(self):

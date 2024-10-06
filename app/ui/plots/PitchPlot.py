@@ -21,6 +21,7 @@ class PitchPlot(QWidget):
             'timeline': '#FF0000',  # Red color
             'staff_line': '#363636',  # Dark grey
             'onsets': '#C297A2', # Rosy brown
+            'pitch_onsets': '#C1C1C1', # Light grey
             'notes': '#8B768A' # Mountbatten pink
         }
         self.midi_config = {
@@ -163,11 +164,11 @@ class PitchPlot(QWidget):
             volume = normalized_volumes[i]
 
             # Convert volume to hue:
-            # 0 -> blue (HSV hue ~240), 0.5 -> red (HSV hue ~0), 1 -> yellow (HSV hue ~60)
+            # 0 -> blue (HSV hue ~240), 0.5 -> yellow (HSV hue ~60) 1 -> red (HSV hue ~0)
             if volume < 0.5:
-                hue = 240 - (240-0) * (volume/0.5)  # blue to red
+                hue = 240 - (240-180) * (volume/0.5)  # blue to yellow
             else:
-                hue = 0 + (60 - 0) * ((volume-0.5) / 0.5)  # red to yellow
+                hue = 180 - (180 - 0) * ((volume-0.5) / 0.5)  # yellow to red
 
             # QColor uses HSV (hue, saturation, value) to represent color
             color = QColor.fromHsv(int(hue), 255, 255)  # Full saturation and value for bright colors
@@ -204,22 +205,35 @@ class PitchPlot(QWidget):
                 self.note_lines.append(note_line)
 
 
-    def plot_onsets(self, onsets: np.ndarray):
+    def plot_onsets(self, onset_df: pd.DataFrame):
         """Plot the detected onsets on the pitch plot."""
         
         self.onsets = []
-        for onset in onsets:
-            onset_bar = pg.BarGraphItem(
-                x=onset,
-                y=71,
-                height=5,
-                width=0.005,
-                brush=self.colors['onsets'],
-                pen=None,
-                name='Onset'
-            )
-            self.onsets.append(onset_bar)
-            self.plot.addItem(onset_bar)
+        for i, onset_row in onset_df.iterrows():
+            if onset_row['onset']:
+                onset_bar = pg.BarGraphItem(
+                    x=onset_row['time'],
+                    y=71,
+                    height=5,
+                    width=0.005,
+                    brush=self.colors['onsets'],
+                    pen=None,
+                    name='Onset'
+                )
+                self.onsets.append(onset_bar)
+                self.plot.addItem(onset_bar)
+            if onset_row['pitch_diff']:
+                pitch_onset_bar = pg.BarGraphItem(
+                    x=onset_row['time'],
+                    y=73,
+                    height=5,
+                    width=0.005,
+                    brush=self.colors['pitch_onsets'],
+                    pen=None,
+                    name='Onset'
+                )
+                self.onsets.append(pitch_onset_bar)
+                self.plot.addItem(pitch_onset_bar)
 
     def move_plot(self, current_time: float):
         """Move the plot to the current time."""
