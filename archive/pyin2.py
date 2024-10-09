@@ -1,83 +1,8 @@
-import numpy as np
-from numba import njit
-import scipy
 
-from .Yin import Yin
-from ..Pitch import PitchConfig, Pitch
-from .Filter import Filter
-from app.modules.audio.AudioData import AudioData
-from app.config import AppConfig
-
-class PYin:
+class PYIN:
     def __init__(self):
         pass
 
-    # Question: How is voicing determined within this function? 
-    #   -> global_min? n_thresholds_below_min?
-    @njit
-    def _pthreshold(trough_prior: np.ndarray, trough_threshold_matrix: np.ndarray, beta_pdf, no_trough_prob: float=0.01):
-        """
-        Compute the probabilities of each trough using the prior distribution
-        and beta distribution of thresholds, optimized with Numba.
-
-        Args:
-            trough_prior: The prior distribution of troughs.
-            trough_threshold_matrix: A boolean matrix indicating threshold presence.
-            beta_pdf: The probability density function of the beta distribution.
-            no_trough_prob: The probability of no troughs being present.
-
-        Returns:
-            A 1D array of probabilities for each trough.
-        """
-        trough_probs = trough_prior.dot(beta_pdf)
-        global_min = np.argmin(trough_probs)
-        n_thresholds_below_min = np.count_nonzero(~trough_threshold_matrix[global_min, :])
-        trough_probs[global_min] += no_trough_prob * np.sum(beta_pdf[:n_thresholds_below_min])
-        return trough_probs
-
-    def probabilistic_thresholding(cmndf_frame: np.ndarray, thresholds, beta_pdf) -> tuple[list[float], list[float]]:
-        """
-        Get all possible pitch candidates + probabilities for a given audio frame's CMNDF.
-        Corresponds to the probabilistic thresholding step in the PYIN algorithm.
-        
-        Args:
-            cmndf_frame: The CMNDF function for a single audio frame.
-            thresholds: The thresholds to use for probabilistic thresholding.
-            beta_pdf: The probability density function of the beta distribution.
-        
-        Returns:
-            A tuple with lists of pitch candidates and their respective probabilities.
-        """
-        base_trough_indices = scipy.signal.argrelmin(cmndf_frame, order=1)[0]
-        troughs = [Yin.parabolic_interpolation(cmndf_frame, i) for i in base_trough_indices]
-
-        trough_x_vals = np.array([trough[0] for trough in troughs])
-        trough_y_vals = np.array([trough[1] for trough in troughs])
-
-        trough_threshold_matrix = np.less.outer(trough_y_vals, thresholds)
-        trough_ranks = np.cumsum(trough_threshold_matrix, axis=0) - 1 # count how many troughs are below threshold
-        n_troughs = np.count_nonzero(trough_threshold_matrix, axis=0)
-
-        BOLTZMANN_PARAM = 2.0
-        trough_prior = scipy.stats.boltzmann.pmf(trough_ranks, BOLTZMANN_PARAM, n_troughs)
-        trough_prior[~trough_threshold_matrix] = 0
-
-        trough_probabilities = PYin._pthreshold(trough_prior, trough_threshold_matrix, beta_pdf, no_trough_prob=0.01)
-
-        SAMPLE_RATE = 44100
-        trough_frequencies = SAMPLE_RATE / trough_x_vals
-
-        return trough_frequencies, trough_probabilities
-    
-    def calculate_alpha_beta(mean_threshold, total=20):
-        """
-        Calculate alpha and beta for a beta distribution given a desired mean 
-        and a total sum of alpha and beta.
-        """
-        alpha = mean_threshold * total
-        beta = total - alpha
-        return alpha, beta
-    
     @staticmethod
     def pyin(audio_data: np.ndarray, mean_threshold: float=0.3, 
              sr: int=44100, fmin: int=196, fmax: int=3000):

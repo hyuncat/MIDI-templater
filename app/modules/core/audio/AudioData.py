@@ -1,29 +1,31 @@
 import numpy as np
 import threading
-import os
 import essentia.standard as es
-from app.modules.midi.MidiData import MidiData
-from app.config import AppConfig
 import pretty_midi
 
+from app.modules.core.midi.MidiData import MidiData
+from app.config import AppConfig
+
+
 class AudioData:
-    def __init__(self, MidiData: MidiData=None, audio_filepath: str=None):
+    def __init__(self, MidiData: MidiData=None, audio_filepath: str=None, sample_rate=AppConfig.SAMPLE_RATE):
         """
         Initialize the RecordingData with an array of zeros of length equal to the MIDI file length.
         @param:
             - midi_length: int, length of the MIDI file in samples
         """
         self._MidiData = MidiData
+        self.sample_rate = sample_rate
 
         # Initialize the audio data array with all zeros, with capacity 
         # based on MIDI file length and app's SAMPLE_RATE
         if self._MidiData is not None:
-            self.capacity = int(self._MidiData.get_length() * AppConfig.SAMPLE_RATE)
+            self.capacity = int(self._MidiData.get_length() * self.sample_rate)
             self.data = np.zeros(self.capacity, dtype=np.float32)
         
         else: # If no MIDI file is provided, use a default length of 60 seconds
             DEFAULT_LENGTH = 60
-            self.capacity = int(DEFAULT_LENGTH * AppConfig.SAMPLE_RATE)
+            self.capacity = int(DEFAULT_LENGTH * self.sample_rate)
             self.data = np.zeros(self.capacity, dtype=np.float32)
             
         if audio_filepath is not None:
@@ -41,7 +43,7 @@ class AudioData:
         """
         # app_directory = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
         # audio_file_path = os.path.join(app_directory, 'resources', 'audio', audio_filepath)
-        loader = es.MonoLoader(filename=audio_filepath, sampleRate=AppConfig.SAMPLE_RATE)
+        loader = es.MonoLoader(filename=audio_filepath, sampleRate=self.sample_rate)
         audio_data = loader()
 
         # Set the loaded audio from file as the new self.audio_data and update capacity
@@ -57,7 +59,7 @@ class AudioData:
             soundfont_filepath (str): Soundfont file
         """
         midi_obj = pretty_midi.PrettyMIDI(midi_filepath)
-        midi_audio = midi_obj.fluidsynth(fs=AppConfig.SAMPLE_RATE, sf2_path=soundfont_filepath)
+        midi_audio = midi_obj.fluidsynth(fs=self.sample_rate, sf2_path=soundfont_filepath)
 
         self.data = midi_audio
         self.capacity = len(midi_audio)
@@ -69,7 +71,7 @@ class AudioData:
             buffer (np.ndarray): Temporary buffer of new audio data to be added
             start_time (float), time in seconds to start adding the new chunk
         """
-        start_index = int(start_time * AppConfig.SAMPLE_RATE)
+        start_index = int(start_time * self.sample_rate)
         end_index = start_index + len(buffer)
 
         if end_index > self.capacity:
@@ -90,8 +92,8 @@ class AudioData:
         Returns:
             data (np.ndarray): audio data array from start_time to end_time
         """
-        start_index = int(start_time * AppConfig.SAMPLE_RATE)
-        end_index = int(end_time * AppConfig.SAMPLE_RATE)
+        start_index = int(start_time * self.sample_rate)
+        end_index = int(end_time * self.sample_rate)
 
         with self.lock:
             return self.data[start_index:end_index]
@@ -102,4 +104,4 @@ class AudioData:
         Returns:
             length (float): length of the audio data in seconds
         """
-        return len(self.data) / AppConfig.SAMPLE_RATE
+        return len(self.data) / self.sample_rate

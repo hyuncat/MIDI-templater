@@ -16,7 +16,7 @@ from app.modules.midi.MidiPlayer import MidiPlayer
 from app.modules.dtw.PitchDTW import PitchDTW
 from archive.PitchAnalyzer import PitchAnalyzer
 from app.modules.pitch.pda.PYin import PYin
-from app.modules.pitch.Onsets import Onsets
+from app.modules.pitch.models.Onsets import OnsetData
 # UI
 from app.ui.Slider import Slider
 from app.ui.plots.PitchPlot import PitchPlot
@@ -89,18 +89,18 @@ class RecordTab(QWidget):
         print(f"Preloaded user audio: {user_audio_file}")
 
         self.pitches, self.best_prob_pitches = PYin.pyin(self._AudioData.data, mean_threshold=0.3)
-        self.os = Onsets()
-        self.onset_times = self.os.detect_onsets(self._AudioData)
-        self.note_df = self.os.detect_pitch_changes(self.best_prob_pitches, window_size=30, threshold=0.6)
-        self.onset_df = self.os.combine_onsets(self.onset_times, self.note_df, combine_threshold=0.05)
+        self.onset_data = OnsetData(self._AudioData)
+        # self.onset_times = self.os.detect_onsets(self._AudioData)
+        self.onset_data.detect_pitch_changes(self.best_prob_pitches, window_size=30, threshold=0.6)
+        self.onset_data.combine_onsets(combine_threshold=0.05)
     
     def init_pitch_plot(self):
         self._PitchPlot = PitchPlot()
         self._PitchPlot.plot_midi(self._MidiData)
 
         # Plot these if user preloads in data
-        self._PitchPlot.plot_onsets(self.onset_df)
-        self._PitchPlot.plot_notes(self.note_df)
+        self._PitchPlot.plot_onsets(self.onset_data.onset_df)
+        # self._PitchPlot.plot_notes(self.note_df)
         self._PitchPlot.plot_pitches(self.best_prob_pitches)
         self._layout.addWidget(self._PitchPlot)
 

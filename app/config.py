@@ -9,6 +9,10 @@ class AppConfig:
     FRAME_SIZE: int = 2048
     HOP_SIZE: int = 128
     
+    # Instrument settings: Violin
+    MIN_VIOLIN_FREQ = 196
+    TUNING = 0.0
+
     # Number of audio channels to record/playback from
     CHANNELS: int = 1 # Mono, for simplicity (also, idrk)
 

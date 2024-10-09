@@ -7,8 +7,8 @@ import pyqtgraph as pg
 from PyQt6.QtWidgets import QWidget, QVBoxLayout, QApplication
 from PyQt6.QtGui import QColor
 
-from app.modules.midi.MidiData import MidiData
-from app.modules.pitch.Pitch import Pitch
+from app.modules.core.midi.MidiData import MidiData
+from app.modules.processing.pda.Pitch import Pitch
 
 
 class PitchPlot(QWidget):

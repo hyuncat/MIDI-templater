@@ -4,7 +4,7 @@ import numpy as np
 import logging
 import threading
 from essentia.standard import MonoLoader
-from app.modules.audio.AudioData import AudioData
+from app.modules.core.audio.AudioData import AudioData
 from app.config import AppConfig
 
 class AudioPlayer:
